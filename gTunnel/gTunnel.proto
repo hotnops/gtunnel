@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+option java_multiple_files = true;
+option java_package = "gtunnel";
+option java_outer_classname = "GTunnel";
+
+package gtunnel;
+
+service GTunnel {
+  // Creates a new tunnel
+  rpc SendMessageToServer(ConnectionMessage) returns (empty) {}
+
+  rpc AcknowledgeDisconnect(BytesMessage) returns (empty) {}
+
+  // Gets a stream of control messages from the server
+  rpc GetConnectionMessages(empty) returns (stream ConnectionMessage) {}
+  rpc CreateByteStream(stream BytesMessage) returns (stream BytesMessage) {}
+}
+
+message empty {}
+
+message ConnectionMessage {
+  int32 operation = 1;
+  int32 connectionID = 2;
+  int32 errStatus = 3;
+  uint32 ipAddress = 4;
+  uint32 port = 5;
+}
+
+message BytesMessage {
+  int32 connectionID = 1;
+  bytes Content = 2;
+}
