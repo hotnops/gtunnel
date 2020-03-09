@@ -2,7 +2,7 @@ package common
 
 import (
 	"net"
-	pb "hotnops/gTunnel/gTunnel"
+	pb "gTunnel/gTunnel"
 )
 
 // A structure to represent a connection

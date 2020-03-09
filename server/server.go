@@ -9,8 +9,8 @@ import (
 	"log"
 	"net"
 	"strconv"
-	"hotnops/gTunnel/common"
-	pb "hotnops/gTunnel/gTunnel"
+	"gTunnel/common"
+	pb "gTunnel/gTunnel"
 
 	"github.com/abiosoft/ishell"
 	"google.golang.org/grpc"

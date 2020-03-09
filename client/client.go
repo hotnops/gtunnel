@@ -7,8 +7,8 @@ import (
 	"io"
 	"log"
 	"net"
-	"hotnops/gTunnel/common"
-	pb "hotnops/gTunnel/gTunnel"
+	"gTunnel/common"
+	pb "gTunnel/gTunnel"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/testdata"
