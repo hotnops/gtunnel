@@ -27,7 +27,9 @@ COPY common/ common/.
 RUN go get -d -v ./...
 RUN go install -v ./...
 
-CMD ["bash", "/go/src/gTunnel/build_all.sh"]
+RUN go get -u github.com/go-delve/delve/cmd/dlv
+
+CMD ["dlv", "--headless", "--listen=0.0.0.0:2345", "debug", "gServer/gServer.go"]
 
 
 	

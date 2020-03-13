@@ -20,14 +20,14 @@ ENV PATH=$PATH:$GOPATH/bin
 RUN ./build_protoc.sh
 
 COPY build/build_all.sh .
-COPY gServer/ gServer/.
-COPY gClient/ gClient/.
+COPY server/ server/.
+COPY client/ client/.
 COPY common/ common/.
 
 RUN go get -d -v ./...
 RUN go install -v ./...
 
-CMD ["bash", "/go/src/gTunnel/build_all.sh"]
+CMD ["go", "run", "server/server.go"]
 
 
 	
