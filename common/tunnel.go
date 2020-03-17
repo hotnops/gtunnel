@@ -7,8 +7,9 @@ import (
 	"net"
 )
 
-type ByteStreamFactoryInterface interface {
+type ConnectionStreamHandler interface {
 	GetByteStream(connId int32) ByteStream
+	CloseStream(connId int32)
 }
 
 type Tunnel struct {
@@ -18,11 +19,12 @@ type Tunnel struct {
 	remotePort        uint32
 	remoteIP          uint32
 	connections       map[int32]*Connection
+	listeners         []net.Listener
 	Kill              chan bool
 	ctrlStream        TunnelControlStream
 	connected         chan bool
 	connectionCount   int32
-	ByteStreamFactory ByteStreamFactoryInterface
+	ConnectionHandler ConnectionStreamHandler
 }
 
 func NewTunnel(id string, localPort uint32, localIP uint32, remoteIP uint32, remotePort uint32) *Tunnel {
@@ -35,6 +37,7 @@ func NewTunnel(id string, localPort uint32, localIP uint32, remoteIP uint32, rem
 	t.connections = make(map[int32]*Connection)
 	t.Kill = make(chan bool)
 	t.connected = make(chan bool)
+	t.listeners = make([]net.Listener, 0)
 	return t
 }
 
@@ -45,6 +48,10 @@ func (t *Tunnel) GetConnection(connId int32) *Connection {
 		log.Printf("Attempted to get connection that doesn't exist: %d", connId)
 		return nil
 	}
+}
+
+func (t *Tunnel) GetConnections() map[int32]*Connection {
+	return t.connections
 }
 
 func (t *Tunnel) SignalConnect() {
@@ -66,6 +73,16 @@ func (t *Tunnel) Start() {
 }
 
 func (t *Tunnel) Stop() {
+	// First, stop all the listeners
+	for _, ln := range t.listeners {
+		ln.Close()
+	}
+
+	// Close all existing tcp connections
+	for _, conn := range t.connections {
+		conn.Close()
+	}
+	// Lastly, signal that the tunnel stream should be killed
 	t.Kill <- true
 }
 
@@ -79,7 +96,11 @@ func (t *Tunnel) handleIngressCtrlMessages() {
 	}(t.ctrlStream)
 	for {
 		select {
-		case ctrlMessage := <-ingressMessages:
+		case ctrlMessage, ok := <-ingressMessages:
+			if !ok {
+				log.Printf("Failed to read from ingressMessages.")
+				break
+			}
 			// handle control message
 			if ctrlMessage.Operation == TunnelCtrlConnect {
 				log.Println("Got tunnel ctrl connect message")
@@ -93,7 +114,7 @@ func (t *Tunnel) handleIngressCtrlMessages() {
 					ctrlMessage.ErrorStatus = 1
 				} else {
 					gConn := NewConnection(conn)
-					stream := t.ByteStreamFactory.GetByteStream(ctrlMessage.ConnectionID)
+					stream := t.ConnectionHandler.GetByteStream(ctrlMessage.ConnectionID)
 
 					bytesMessage := new(pb.BytesMessage)
 					bytesMessage.EndpointID = ctrlMessage.EndpointID
@@ -103,6 +124,7 @@ func (t *Tunnel) handleIngressCtrlMessages() {
 					stream.Send(bytesMessage)
 					gConn.SetStream(stream)
 					gConn.Start()
+
 					t.connections[ctrlMessage.ConnectionID] = gConn
 				}
 				t.ctrlStream.Send(ctrlMessage)
@@ -127,6 +149,7 @@ func (t *Tunnel) handleIngressCtrlMessages() {
 				}
 			} else if ctrlMessage.Operation == TunnelCtrlDisconnect {
 				log.Println("Got tunnel ctrl connect message")
+				t.RemoveConnection(ctrlMessage.ConnectionID)
 			}
 
 		case <-t.Kill:
@@ -141,6 +164,8 @@ func (t *Tunnel) AddListener(listenPort int32, endpointId string) bool {
 		log.Printf("Failed to start listener on port %d : %v", listenPort, err)
 		return false
 	}
+
+	t.listeners = append(t.listeners, ln)
 
 	newConns := make(chan net.Conn)
 
@@ -183,10 +208,4 @@ func (t *Tunnel) AddConnection(c *Connection) {
 
 func (t *Tunnel) RemoveConnection(connId int32) {
 	delete(t.connections, connId)
-}
-
-func (t *Tunnel) kill() {
-	// Stop all associated listeners
-	// Close all existing connections
-
 }

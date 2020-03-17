@@ -9,6 +9,5 @@ const (
 const (
 	TunnelCtrlConnect = iota
 	TunnelCtrlAck
-	TunnelCtrlCreateStream
 	TunnelCtrlDisconnect
 )

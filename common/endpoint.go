@@ -26,23 +26,43 @@ type Endpoint struct {
 	endpointCtrlStream chan pb.EndpointControlMessage
 }
 
+// AddTunnel adds a tunnel instance to the list of tunnels
+// maintained by the endpoint
 func (e *Endpoint) AddTunnel(id string, t *Tunnel) {
 	e.tunnels[id] = t
 }
 
+// GetTunnels returns all of the active tunnels
+// maintained by the endpoint
 func (e *Endpoint) GetTunnels() map[string]*Tunnel {
 	return e.tunnels
 }
 
-func (e *Endpoint) GetTunnel(tunId string) *Tunnel {
-	t, ok := e.tunnels[tunId]
+//GetTunnel will take in a tunnel ID string as an argument
+// and return a Tunnel pointer of the corresponding ID.
+func (e *Endpoint) GetTunnel(tunID string) *Tunnel {
+	t, ok := e.tunnels[tunID]
 	if ok {
 		return t
-	} else {
-		return nil
 	}
+	return nil
 }
 
+// RemoveTunnel takes in a tunnelID as an argument
+// and removes the tunnel from the endpoint. Returns
+// true if successful and false otherwise.
+func (e *Endpoint) RemoveTunnel(tunID string) bool {
+	tun, ok := e.tunnels[tunID]
+	if !ok {
+		return false
+	}
+	tun.Stop()
+	delete(e.tunnels, tunID)
+	return true
+}
+
+// NewEndpoint is a constructor for the endpoint
+// class. It takes an endpoint ID string as an argument.
 func NewEndpoint(id string) *Endpoint {
 	e := new(Endpoint)
 	e.Id = id

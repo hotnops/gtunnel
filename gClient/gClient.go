@@ -37,17 +37,22 @@ type gClient struct {
 	gCtx       context.Context
 }
 
-type ClientByteStreamFactory struct {
+type ClientStreamHandler struct {
 	client pb.GTunnelClient
 	gCtx   context.Context
 }
 
-func (c *ClientByteStreamFactory) GetByteStream(connId int32) common.ByteStream {
+func (c *ClientStreamHandler) GetByteStream(connId int32) common.ByteStream {
 	stream, err := c.client.CreateConnectionStream(c.gCtx)
 	if err != nil {
 		log.Printf("Failed to get byte stream: %v", err)
 	}
+
 	return stream
+}
+
+func (c *ClientStreamHandler) CloseStream(connId int32) {
+
 }
 
 func (c *gClient) receiveClientControlMessages() {
@@ -75,10 +80,10 @@ func (c *gClient) receiveClientControlMessages() {
 				log.Println("Adding new tunnel")
 
 				newTunnel := common.NewTunnel(message.TunnelID, message.LocalIp, message.LocalPort, message.RemoteIP, message.RemotePort)
-				f := new(ClientByteStreamFactory)
+				f := new(ClientStreamHandler)
 				f.client = c.grpcClient
 				f.gCtx = c.gCtx
-				newTunnel.ByteStreamFactory = f
+				newTunnel.ConnectionHandler = f
 
 				tStream, _ := c.grpcClient.CreateTunnelControlStream(c.gCtx)
 

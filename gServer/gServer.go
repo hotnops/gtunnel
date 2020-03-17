@@ -30,26 +30,35 @@ type gServer struct {
 	currentEndpoint string
 }
 
-type ServerByteStreamFactory struct {
+type ServerConnectionHandler struct {
 	server     *gServer
 	endpointId string
 	tunnelId   string
 }
 
-func (s *ServerByteStreamFactory) GetByteStream(connId int32) common.ByteStream {
+func (s *ServerConnectionHandler) GetByteStream(connId int32) common.ByteStream {
 	endpoint := s.server.endpoints[s.endpointId]
 	tunnel := endpoint.GetTunnel(s.tunnelId)
 	stream := tunnel.GetControlStream()
 	conn := tunnel.GetConnection(connId)
 
 	message := new(pb.TunnelControlMessage)
-	message.Operation = common.TunnelCtrlCreateStream
+	message.Operation = common.TunnelCtrlConnect
 	message.EndpointID = s.endpointId
 	message.TunnelID = s.tunnelId
 	message.ConnectionID = connId
 	stream.Send(message)
 	<-conn.Connected
 	return conn.GetStream()
+}
+
+func (s *ServerConnectionHandler) CloseStream(connId int32) {
+	endpoint := s.server.endpoints[s.endpointId]
+	tunnel := endpoint.GetTunnel(s.tunnelId)
+	conn := tunnel.GetConnection(connId)
+
+	conn.Kill <- true
+
 }
 
 // RPC function that will listen on the output channel and send
@@ -273,12 +282,12 @@ func (s *gServer) UIAddTunnel(c *ishell.Context) {
 	tId := common.GenerateString(common.TunnelIDSize)
 
 	newTunnel := common.NewTunnel(tId, 0, 0, common.IpToInt32(targetIP), uint32(targetPort))
-	f := new(ServerByteStreamFactory)
+	f := new(ServerConnectionHandler)
 	f.server = s
 	f.endpointId = s.currentEndpoint
 	f.tunnelId = tId
 
-	newTunnel.ByteStreamFactory = f
+	newTunnel.ConnectionHandler = f
 
 	if !newTunnel.AddListener(int32(listenPort), s.currentEndpoint) {
 		log.Printf("Failed to start listener. Returning")
@@ -333,10 +342,39 @@ func (s *gServer) UIListTunnels(c *ishell.Context) {
 		return
 	}
 	endpoint := s.endpoints[s.currentEndpoint]
-	for key, _ := range endpoint.GetTunnels() {
+	for key := range endpoint.GetTunnels() {
 		c.Printf("Tunnel ID: %s\n", key)
 	}
 
+}
+
+func (s *gServer) UIDeleteTunnel(c *ishell.Context) {
+	if s.currentEndpoint == "" {
+		c.Printf("No endpoint selected")
+		return
+	}
+
+	endpoint, _ := s.endpoints[s.currentEndpoint]
+	tunnels := endpoint.GetTunnels()
+	var tunID string
+
+	if len(c.Args) < 1 {
+		ids := make([]string, 0, len(tunnels))
+
+		for id := range tunnels {
+			ids = append(ids, id)
+		}
+		choice := c.MultiChoice(ids, "Select tunnel ID")
+
+		tunID = ids[choice]
+
+	} else {
+		tunID = c.Args[0]
+	}
+
+	c.Printf("Deleting tunnel : %s", tunID)
+
+	endpoint.RemoveTunnel(tunID)
 }
 
 func main() {
@@ -377,6 +415,12 @@ func main() {
 		Name: "addtunnel",
 		Help: "Creates a tunnel",
 		Func: s.UIAddTunnel,
+	})
+
+	shell.AddCmd(&ishell.Cmd{
+		Name: "deltunnel",
+		Help: "Remove tunnel",
+		Func: s.UIDeleteTunnel,
 	})
 
 	shell.AddCmd(&ishell.Cmd{
