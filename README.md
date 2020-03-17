@@ -27,3 +27,7 @@ On the server console, you will get a prompt. You may issue the following comman
 [] Multiple tunnel links
 
 [] Dynamic socks proxy support
+
+[] Authentication between client and server
+
+[] Server configuration file on input with pre-configured tunnels
