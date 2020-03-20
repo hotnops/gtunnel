@@ -6,6 +6,7 @@ import (
 	"gTunnel/common"
 	pb "gTunnel/gTunnel"
 	"io"
+	"os"
 
 	"google.golang.org/grpc"
 )
@@ -75,7 +76,7 @@ func (c *gClient) receiveClientControlMessages() {
 			if err == io.EOF {
 				break
 			} else if err != nil {
-				os.Exit()
+				os.Exit(0)
 			}
 			ctrlMessageChan <- message
 		}
