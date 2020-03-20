@@ -40,12 +40,9 @@ func (e *Endpoint) GetTunnels() map[string]*Tunnel {
 
 //GetTunnel will take in a tunnel ID string as an argument
 // and return a Tunnel pointer of the corresponding ID.
-func (e *Endpoint) GetTunnel(tunID string) *Tunnel {
+func (e *Endpoint) GetTunnel(tunID string) (*Tunnel, bool) {
 	t, ok := e.tunnels[tunID]
-	if ok {
-		return t
-	}
-	return nil
+	return t, ok
 }
 
 // RemoveTunnel takes in a tunnelID as an argument
@@ -59,6 +56,13 @@ func (e *Endpoint) RemoveTunnel(tunID string) bool {
 	tun.Stop()
 	delete(e.tunnels, tunID)
 	return true
+}
+
+func (e *Endpoint) Stop() {
+	for id, _ := range e.tunnels {
+		e.RemoveTunnel(id)
+	}
+	close(e.endpointCtrlStream)
 }
 
 // NewEndpoint is a constructor for the endpoint

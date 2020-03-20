@@ -3,13 +3,13 @@ package common
 import (
 	"fmt"
 	pb "gTunnel/gTunnel"
-	"log"
 	"net"
 )
 
 type ConnectionStreamHandler interface {
-	GetByteStream(connId int32) ByteStream
+	GetByteStream(ctrlMessage *pb.TunnelControlMessage) ByteStream
 	CloseStream(connId int32)
+	Acknowledge(ctrlMessage *pb.TunnelControlMessage) ByteStream
 }
 
 type Tunnel struct {
@@ -45,7 +45,6 @@ func (t *Tunnel) GetConnection(connId int32) *Connection {
 	if conn, ok := t.connections[connId]; ok {
 		return conn
 	} else {
-		log.Printf("Attempted to get connection that doesn't exist: %d", connId)
 		return nil
 	}
 }
@@ -83,14 +82,18 @@ func (t *Tunnel) Stop() {
 		conn.Close()
 	}
 	// Lastly, signal that the tunnel stream should be killed
-	t.Kill <- true
+	close(t.Kill)
 }
 
 func (t *Tunnel) handleIngressCtrlMessages() {
 	ingressMessages := make(chan *pb.TunnelControlMessage)
 	go func(s TunnelControlStream) {
 		for {
-			ingressMessage, _ := t.ctrlStream.Recv()
+			ingressMessage, err := t.ctrlStream.Recv()
+			if err != nil {
+				close(ingressMessages)
+				return
+			}
 			ingressMessages <- ingressMessage
 		}
 	}(t.ctrlStream)
@@ -98,61 +101,53 @@ func (t *Tunnel) handleIngressCtrlMessages() {
 		select {
 		case ctrlMessage, ok := <-ingressMessages:
 			if !ok {
-				log.Printf("Failed to read from ingressMessages.")
+				ingressMessages = nil
+				break
+			}
+			if ctrlMessage == nil {
+				ingressMessages = nil
 				break
 			}
 			// handle control message
 			if ctrlMessage.Operation == TunnelCtrlConnect {
-				log.Println("Got tunnel ctrl connect message")
-				log.Printf("Attempting to make new connection to %d:%d\n", t.remoteIP, t.remotePort)
-
-				ctrlMessage.Operation = TunnelCtrlAck
-
 				conn, err := net.Dial("tcp", fmt.Sprintf("%s:%d", Int32ToIP(t.remoteIP), t.remotePort))
 				if err != nil {
-					log.Printf("Failed to connect to address specified by tunnel: %v ", err)
 					ctrlMessage.ErrorStatus = 1
 				} else {
-					gConn := NewConnection(conn)
-					stream := t.ConnectionHandler.GetByteStream(ctrlMessage.ConnectionID)
+					var gConn *Connection
+					if gConn, ok = t.connections[ctrlMessage.ConnectionID]; !ok {
+						gConn = NewConnection(conn)
+						t.connections[ctrlMessage.ConnectionID] = gConn
+					}
 
-					bytesMessage := new(pb.BytesMessage)
-					bytesMessage.EndpointID = ctrlMessage.EndpointID
-					bytesMessage.TunnelID = ctrlMessage.TunnelID
-					bytesMessage.ConnectionID = ctrlMessage.ConnectionID
-
-					stream.Send(bytesMessage)
+					stream := t.ConnectionHandler.GetByteStream(ctrlMessage)
 					gConn.SetStream(stream)
 					gConn.Start()
 
-					t.connections[ctrlMessage.ConnectionID] = gConn
 				}
-				t.ctrlStream.Send(ctrlMessage)
+
 			} else if ctrlMessage.Operation == TunnelCtrlAck {
-				log.Println("Got a tunnel ctrl Ack message")
 				//conn := t.connections[ctrlMessage.ConnectionID]
 				if ctrlMessage.ErrorStatus != 0 {
-					log.Println("Failed to connect to remote IP. Deleting connection")
 					t.RemoveConnection(ctrlMessage.ConnectionID)
 				} else {
 					// Now that we know we are connected, we need to create a new byte
 					// stream and create a thread to service it
+					// If this is client side, we need to still create the byte stream
 					conn, ok := t.connections[ctrlMessage.ConnectionID]
-					if !ok {
-						log.Printf("Got an ack for a non-existent connection: %d", ctrlMessage.ConnectionID)
-					} else {
-						log.Printf("Starting connection")
-						// Waiting until the byte stream gets set up
-						<-conn.Connected
+					// Waiting until the byte stream gets set up
+					conn.SetStream(t.ConnectionHandler.Acknowledge(ctrlMessage))
+					if ok {
 						conn.Start()
 					}
 				}
 			} else if ctrlMessage.Operation == TunnelCtrlDisconnect {
-				log.Println("Got tunnel ctrl connect message")
 				t.RemoveConnection(ctrlMessage.ConnectionID)
 			}
-
 		case <-t.Kill:
+			break
+		}
+		if ingressMessages == nil {
 			break
 		}
 	}
@@ -161,7 +156,6 @@ func (t *Tunnel) handleIngressCtrlMessages() {
 func (t *Tunnel) AddListener(listenPort int32, endpointId string) bool {
 	ln, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", listenPort))
 	if err != nil {
-		log.Printf("Failed to start listener on port %d : %v", listenPort, err)
 		return false
 	}
 
@@ -174,6 +168,8 @@ func (t *Tunnel) AddListener(listenPort int32, endpointId string) bool {
 			c, err := l.Accept()
 			if err == nil {
 				newConns <- c
+			} else {
+				return
 			}
 		}
 	}(ln)
@@ -183,7 +179,6 @@ func (t *Tunnel) AddListener(listenPort int32, endpointId string) bool {
 			case conn := <-newConns:
 				gConn := NewConnection(conn)
 				t.AddConnection(gConn)
-				log.Printf("Accepted new connection")
 				newMessage := new(pb.TunnelControlMessage)
 				newMessage.EndpointID = endpointId
 				newMessage.Operation = TunnelCtrlConnect
@@ -192,7 +187,6 @@ func (t *Tunnel) AddListener(listenPort int32, endpointId string) bool {
 				t.ctrlStream.Send(newMessage)
 
 			case <-t.Kill:
-				log.Printf("Tunnel closed. Stopping listener on port %d", listenPort)
 				return
 			}
 		}

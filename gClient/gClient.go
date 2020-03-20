@@ -2,23 +2,23 @@ package main
 
 import (
 	"context"
-	"flag"
+	"fmt"
 	"gTunnel/common"
 	pb "gTunnel/gTunnel"
 	"io"
-	"log"
 	"net"
-
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/testdata"
 )
 
-var (
-	tls                = flag.Bool("tls", false, "Connection uses TLS if true, else plain TCP")
-	caFile             = flag.String("ca_file", "", "The file containing the CA root cert file")
-	serverAddr         = flag.String("server_addr", "127.0.0.1:5555", "The server address in the format of host:port")
-	serverHostOverride = flag.String("server_host_override", "x.test.youtube.com", "The server name use to verify the hostname returned by TLS handshake")
-)
+var ID = "UNCONFIGURED"
+var serverAddress = "UNCONFIGURED"
+var serverPort = "" // This needs to be a string to be used with -X
+
+/*var (
+	tls        = flag.Bool("tls", false, "Connection uses TLS if true, else plain TCP")
+	caFile     = flag.String("ca_file", "", "The file containing the CA root cert file")
+	serverAddr = flag.String("server_addr", "127.0.0.1:5555", "The server address in the format of host:port")
+)*/
 
 func intToIP(ip uint32) string {
 	result := make(net.IP, 4)
@@ -38,17 +38,36 @@ type gClient struct {
 }
 
 type ClientStreamHandler struct {
-	client pb.GTunnelClient
-	gCtx   context.Context
+	client     pb.GTunnelClient
+	gCtx       context.Context
+	ctrlStream common.TunnelControlStream
 }
 
-func (c *ClientStreamHandler) GetByteStream(connId int32) common.ByteStream {
+func (c *ClientStreamHandler) GetByteStream(ctrlMessage *pb.TunnelControlMessage) common.ByteStream {
 	stream, err := c.client.CreateConnectionStream(c.gCtx)
 	if err != nil {
-		log.Printf("Failed to get byte stream: %v", err)
+		return nil
 	}
 
+	// Once byte stream is open, send an initial message
+	// with all the appropriate IDs
+	bytesMessage := new(pb.BytesMessage)
+	bytesMessage.EndpointID = ctrlMessage.EndpointID
+	bytesMessage.TunnelID = ctrlMessage.TunnelID
+	bytesMessage.ConnectionID = ctrlMessage.ConnectionID
+
+	stream.Send(bytesMessage)
+
+	// Lastly, forward the control message to the
+	// server to indicate we have acknowledged the connection
+	ctrlMessage.Operation = common.TunnelCtrlAck
+	c.ctrlStream.Send(ctrlMessage)
+
 	return stream
+}
+
+func (c *ClientStreamHandler) Acknowledge(ctrlMessage *pb.TunnelControlMessage) common.ByteStream {
+	return c.GetByteStream(ctrlMessage)
 }
 
 func (c *ClientStreamHandler) CloseStream(connId int32) {
@@ -65,7 +84,7 @@ func (c *gClient) receiveClientControlMessages() {
 				break
 			}
 			if err != nil {
-				log.Fatalf("%v = %v", c, err)
+				return
 			}
 			ctrlMessageChan <- message
 		}
@@ -74,20 +93,27 @@ func (c *gClient) receiveClientControlMessages() {
 	for {
 		select {
 		case message := <-ctrlMessageChan:
-			log.Printf("Got Endpoint control message")
 			operation := message.Operation
 			if operation == common.EndpointCtrlAddTunnel {
-				log.Println("Adding new tunnel")
 
 				newTunnel := common.NewTunnel(message.TunnelID, message.LocalIp, message.LocalPort, message.RemoteIP, message.RemotePort)
 				f := new(ClientStreamHandler)
 				f.client = c.grpcClient
 				f.gCtx = c.gCtx
-				newTunnel.ConnectionHandler = f
+
+				if message.LocalPort != 0 {
+					newTunnel.AddListener(int32(message.LocalPort), c.endpoint.Id)
+				}
 
 				tStream, _ := c.grpcClient.CreateTunnelControlStream(c.gCtx)
 
+				// Once we have the control stream, set it in our client handler
+				f.ctrlStream = tStream
+				newTunnel.ConnectionHandler = f
 				newTunnel.SetControlStream(tStream)
+
+				// Send a message through the new stream
+				// to let the server know the ID specifics
 				tMsg := new(pb.TunnelControlMessage)
 				tMsg.EndpointID = message.EndpointID
 				tMsg.TunnelID = message.TunnelID
@@ -96,35 +122,40 @@ func (c *gClient) receiveClientControlMessages() {
 				c.endpoint.AddTunnel(message.TunnelID, newTunnel)
 				newTunnel.Start()
 
+			} else if operation == common.EndpointCtrlDisconnect {
+				close(c.killClient)
 			}
 
 		case <-c.killClient:
-			log.Printf("Client killed.")
 			return
 		}
 	}
 }
 
 func main() {
-	flag.Parse()
 	var err error
 	var cancel context.CancelFunc
 
 	var opts []grpc.DialOption
-	if *tls {
+	/*if *tls {
 		if *caFile == "" {
 			*caFile = testdata.Path("ca.pem")
 		}
-	}
+	}*/
 	opts = append(opts, grpc.WithInsecure())
 
+	//retryCount := 5
+	//retryPeriod := 30
+
 	gClient := new(gClient)
-	gClient.endpoint = common.NewEndpoint("aaaaa")
+	gClient.endpoint = common.NewEndpoint(ID)
 	gClient.killClient = make(chan bool)
 
-	conn, err := grpc.Dial(*serverAddr, opts...)
+	serverAddr := fmt.Sprintf("%s:%s", serverAddress, serverPort)
+
+	conn, err := grpc.Dial(serverAddr, opts...)
 	if err != nil {
-		log.Fatalf("fail to dial: %v", err)
+		return
 	}
 	defer conn.Close()
 
@@ -137,7 +168,7 @@ func main() {
 	gClient.ctrlStream, err = gClient.grpcClient.CreateEndpointControlStream(gClient.gCtx, conMsg)
 
 	if err != nil {
-		log.Fatalf("GetEndpointMessage failed: %v", err)
+		return
 	}
 
 	go gClient.receiveClientControlMessages()

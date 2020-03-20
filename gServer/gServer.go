@@ -8,7 +8,10 @@ import (
 	pb "gTunnel/gTunnel"
 	"log"
 	"net"
+	"os"
+	"os/exec"
 	"strconv"
+	"strings"
 
 	"github.com/abiosoft/ishell"
 	"google.golang.org/grpc"
@@ -28,6 +31,7 @@ type gServer struct {
 	endpointInputs  map[string]chan *pb.EndpointControlMessage
 	keyboardInput   chan pb.EndpointControlMessage
 	currentEndpoint string
+	shell           *ishell.Shell
 }
 
 type ServerConnectionHandler struct {
@@ -36,28 +40,43 @@ type ServerConnectionHandler struct {
 	tunnelId   string
 }
 
-func (s *ServerConnectionHandler) GetByteStream(connId int32) common.ByteStream {
+func (s *ServerConnectionHandler) GetByteStream(ctrlMessage *pb.TunnelControlMessage) common.ByteStream {
 	endpoint := s.server.endpoints[s.endpointId]
-	tunnel := endpoint.GetTunnel(s.tunnelId)
+	tunnel, ok := endpoint.GetTunnel(s.tunnelId)
+	if !ok {
+		log.Printf("Failed to lookup tunnel.")
+		return nil
+	}
 	stream := tunnel.GetControlStream()
-	conn := tunnel.GetConnection(connId)
+	conn := tunnel.GetConnection(ctrlMessage.ConnectionID)
 
 	message := new(pb.TunnelControlMessage)
-	message.Operation = common.TunnelCtrlConnect
+	message.Operation = common.TunnelCtrlAck
 	message.EndpointID = s.endpointId
 	message.TunnelID = s.tunnelId
-	message.ConnectionID = connId
+	message.ConnectionID = ctrlMessage.ConnectionID
+	// Since gRPC is always client to server, we need
+	// to get the client to make the byte stream connection.
 	stream.Send(message)
+	<-conn.Connected
+	return conn.GetStream()
+}
+
+func (s *ServerConnectionHandler) Acknowledge(ctrlMessage *pb.TunnelControlMessage) common.ByteStream {
+	endpoint := s.server.endpoints[ctrlMessage.EndpointID]
+	tunnel, _ := endpoint.GetTunnel(ctrlMessage.TunnelID)
+	conn := tunnel.GetConnection(ctrlMessage.ConnectionID)
+
 	<-conn.Connected
 	return conn.GetStream()
 }
 
 func (s *ServerConnectionHandler) CloseStream(connId int32) {
 	endpoint := s.server.endpoints[s.endpointId]
-	tunnel := endpoint.GetTunnel(s.tunnelId)
+	tunnel, _ := endpoint.GetTunnel(s.tunnelId)
 	conn := tunnel.GetConnection(connId)
 
-	conn.Kill <- true
+	close(conn.Kill)
 
 }
 
@@ -78,11 +97,24 @@ func (s *gServer) CreateEndpointControlStream(ctrlMessage *pb.EndpointControlMes
 	for {
 		select {
 
-		case controlMessage := <-inputChannel:
+		case controlMessage, ok := <-inputChannel:
+			if !ok {
+				log.Printf("Failed to read from EndpointCtrlStream channel. Exiting")
+				break
+			}
 			controlMessage.EndpointID = ctrlMessage.EndpointID
 			stream.Send(controlMessage)
 		case <-ctx.Done():
-			log.Fatalf("Read timed out")
+			log.Printf("Endpoint disconnected: %s", ctrlMessage.EndpointID)
+			endpoint, ok := s.endpoints[ctrlMessage.EndpointID]
+			if !ok {
+				log.Printf("Endpoint already removed: %s", ctrlMessage.EndpointID)
+			}
+			endpoint.Stop()
+			delete(s.endpoints, ctrlMessage.EndpointID)
+			if s.currentEndpoint == ctrlMessage.EndpointID {
+				s.shell.SetPrompt(">>> ")
+			}
 			return nil
 		}
 	}
@@ -94,10 +126,9 @@ func (s *gServer) CreateTunnelControlStream(stream pb.GTunnel_CreateTunnelContro
 	if err != nil {
 		log.Printf("Failed to receive initial tun stream message: %v", err)
 	}
-	log.Printf("CreateTunnelControlStream: Endpoint ID: %s\tTunnelID: %s\n", tunMessage.EndpointID, tunMessage.TunnelID)
 
 	endpoint := s.endpoints[tunMessage.EndpointID]
-	tun := endpoint.GetTunnel(tunMessage.TunnelID)
+	tun, _ := endpoint.GetTunnel(tunMessage.TunnelID)
 
 	tun.SetControlStream(stream)
 	tun.Start()
@@ -108,164 +139,32 @@ func (s *gServer) CreateTunnelControlStream(stream pb.GTunnel_CreateTunnelContro
 func (s *gServer) CreateConnectionStream(stream pb.GTunnel_CreateConnectionStreamServer) error {
 	bytesMessage, _ := stream.Recv()
 	endpoint := s.endpoints[bytesMessage.EndpointID]
-	tunnel := endpoint.GetTunnel(bytesMessage.TunnelID)
+	tunnel, _ := endpoint.GetTunnel(bytesMessage.TunnelID)
 	conn := tunnel.GetConnection(bytesMessage.ConnectionID)
 	conn.SetStream(stream)
-	log.Printf("Setting byte stream for connection: %d", bytesMessage.ConnectionID)
-	conn.Connected <- true
+	close(conn.Connected)
 	<-conn.Kill
-	log.Printf("CreateConnection stream done")
 	tunnel.RemoveConnection(conn.Id)
 	return nil
 }
 
-/*
-// This is an RPC function the the client will call when it can confirm that
-// the server has successfully disconnected.
-func (s *server) AcknowledgeDisconnect(ctx context.Context, message *pb.BytesMessage) (*pb.Empty, error) {
-	connID := message.GetConnectionID()
-	conn, ok := s.connections[connID]
-	if !ok {
-		log.Printf("Failed to acknowledge disconnect for connection %d. Connection does not exist", connID)
-
-	} else {
-		conn.TCPConn.Close()
-		delete(s.connections, connID)
-	}
-	empty := pb.Empty{}
-	return &empty, nil
-}
-
-// This function will be responsible for continuously receiving tunnel data
-// from the client and sending it to our connection
-func (s *server) CreateByteStream(stream pb.GTunnel_CreateByteStreamServer) error {
-	s.tStream = stream
-	for {
-		bMessage := new(pb.BytesMessage)
-		err := stream.RecvMsg(bMessage)
-		if err != nil {
-			log.Printf("Failed to receive a message from the tunnel stream")
-			break
-		}
-		connection, ok := s.connections[bMessage.ConnectionID]
-		if !ok {
-			log.Printf("Recieved data for a non existent connection")
-		}
-		bytes := bMessage.GetContent()
-		_, err = connection.TCPConn.Write(bytes)
-		if err != nil {
-			log.Printf("Failed to send data to tcp connection")
-		}
-	}
-	return nil
-}
-
-func (s *server) SendMessageToServer(ctx context.Context, message *pb.ControlMessage) (*pb.Empty, error) {
-	connection, ok := s.connections[message.ConnectionID]
-	if !ok {
-		log.Printf("SendMessageToServer received ID of %d but doesn't exist.", message.ConnectionID)
-	} else {
-		if message.ErrStatus == 0 {
-			connection.Connected <- true
-		} else {
-			connection.Connected <- false
-		}
-	}
-	empty := pb.Empty{}
-	return &empty, nil
-}
-
-// This function will continously read bytes from
-// a tcp socket and send them over the tunnel to the server
-func (s *server) sendDataToServer(connID int32) {
-	connection, ok := s.connections[connID]
-	if !ok {
-		log.Printf("Failed to look up connection for connID: %d", connID)
-	}
-	for {
-		bytes := make([]byte, 4096)
-		bMessage := new(pb.BytesMessage)
-		bRead, err := connection.TCPConn.Read(bytes)
-		if err != nil {
-			if err == io.EOF {
-				bytes = make([]byte, 0)
-			} else {
-				log.Printf("Error reading from tcp connnection : %v", err)
-				connection.Kill <- true
-				break
-			}
-		}
-		bMessage.ConnectionID = connID
-		bMessage.Content = bytes[:bRead]
-		err = s.tStream.Send(bMessage)
-
-		if err != nil {
-			log.Printf("Failed to send data over tunnel stream")
-		}
-		if len(bytes) == 0 {
-			break
-		}
-	}
-}
-
-// This function will create a listening thread which will
-// accept new connections and assign them a connection ID
-func (s *server) runListener(lPort int, targetIP net.IP, targetPort int) {
-	ln, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", lPort))
-	if err != nil {
-		log.Printf("Failed to listen on port %d : %v", lPort, err)
-		return
-	}
-
-	newConns := make(chan net.Conn)
-
-	go func(l net.Listener) {
-		for {
-			c, err := l.Accept()
-			if err != nil {
-				newConns <- nil
-			}
-			newConns <- c
-		}
-	}(ln)
-
-	for {
-		select {
-		case conn := <-newConns:
-			gConn := common.NewConnection(conn)
-
-			message := pb.ControlMessage{}
-			message.Port = uint32(targetPort)
-			message.IpAddress = binary.BigEndian.Uint32(targetIP.To4())
-			message.Operation = 1
-			message.ConnectionID = s.messageCount
-			s.messageCount++
-
-			s.connections[message.ConnectionID] = *gConn
-			s.output <- message
-			if <-gConn.Connected {
-				go s.sendDataToServer(message.ConnectionID)
-			} else {
-				conn.Close()
-				delete(s.connections, message.ConnectionID)
-			}
-		case <-tunnelKill:
-			log.Printf("Tunnel closed")
-			return nil
-		}
-	}
-}*/
-
-// The console based UI menu to add a tunnel
 func (s *gServer) UIAddTunnel(c *ishell.Context) {
 	if s.currentEndpoint == "" {
 		log.Printf("No endpoint selected.")
 		return
 	}
 
-	listenPort, _ := strconv.Atoi(c.Args[0])
-	targetIP := net.ParseIP(c.Args[1])
-	targetPort, _ := strconv.Atoi(c.Args[2])
+	if len(c.Args) < 4 {
+		log.Printf("Usage: addtunnel (local|remote) listenPort destinationIP destinationPort")
+		return
+	}
+
+	direction := strings.ToLower(c.Args[0])
+	listenPort, _ := strconv.Atoi(c.Args[1])
+	targetIP := net.ParseIP(c.Args[2])
+	targetPort, _ := strconv.Atoi(c.Args[3])
+	var tID string
+	var newTunnel *common.Tunnel
 
 	endpointInput, ok := s.endpointInputs[s.currentEndpoint]
 	if !ok {
@@ -279,43 +178,56 @@ func (s *gServer) UIAddTunnel(c *ishell.Context) {
 		return
 	}
 
-	tId := common.GenerateString(common.TunnelIDSize)
+	if len(c.Args) > 4 {
+		tID = c.Args[4]
+		if _, ok := endpoint.GetTunnel(tID); ok {
+			log.Printf("Tunnel ID already exists for this endpoint. Generating ID instead")
+			tID = common.GenerateString(common.TunnelIDSize)
+		}
 
-	newTunnel := common.NewTunnel(tId, 0, 0, common.IpToInt32(targetIP), uint32(targetPort))
-	f := new(ServerConnectionHandler)
-	f.server = s
-	f.endpointId = s.currentEndpoint
-	f.tunnelId = tId
-
-	newTunnel.ConnectionHandler = f
-
-	if !newTunnel.AddListener(int32(listenPort), s.currentEndpoint) {
-		log.Printf("Failed to start listener. Returning")
-		return
+	} else {
+		tID = common.GenerateString(common.TunnelIDSize)
 	}
-
-	endpoint.AddTunnel(tId, newTunnel)
 
 	controlMessage := new(pb.EndpointControlMessage)
 	controlMessage.Operation = common.EndpointCtrlAddTunnel
+	controlMessage.TunnelID = tID
+	newTunnel = common.NewTunnel(tID, 0, 0, common.IpToInt32(targetIP), uint32(targetPort))
 
-	controlMessage.TunnelID = tId
-	controlMessage.RemoteIP = common.IpToInt32(targetIP)
-	controlMessage.RemotePort = uint32(targetPort)
-	controlMessage.LocalIp = 0
-	controlMessage.LocalPort = 0
+	if strings.HasPrefix(direction, "l") {
+
+		controlMessage.RemoteIP = common.IpToInt32(targetIP)
+		controlMessage.RemotePort = uint32(targetPort)
+		controlMessage.LocalIp = 0
+		controlMessage.LocalPort = 0
+	} else if strings.HasPrefix(direction, "r") {
+
+		controlMessage.RemoteIP = 0
+		controlMessage.RemotePort = 0
+		controlMessage.LocalIp = 0
+		controlMessage.LocalPort = uint32(listenPort)
+	}
+
+	f := new(ServerConnectionHandler)
+	f.server = s
+	f.endpointId = s.currentEndpoint
+	f.tunnelId = tID
+
+	newTunnel.ConnectionHandler = f
+
+	if strings.HasPrefix(direction, "l") {
+
+		if !newTunnel.AddListener(int32(listenPort), s.currentEndpoint) {
+			log.Printf("Failed to start listener. Returning")
+			return
+		}
+	}
+
+	endpoint.AddTunnel(tID, newTunnel)
 
 	endpointInput <- controlMessage
 
 }
-
-/*
-// The console based UI menu to list out all connections
-func (s *server) UIListConnections(c *ishell.Context) {
-	for k, _ := range s.connections {
-		c.Printf("Connection ID: %d\n", k)
-	}
-}*/
 
 func (s *gServer) UISetCurrentEndpoint(c *ishell.Context) {
 	endpointId := c.Args[0]
@@ -348,6 +260,55 @@ func (s *gServer) UIListTunnels(c *ishell.Context) {
 
 }
 
+func (s *gServer) UIGenerateClient(c *ishell.Context) {
+
+	const (
+		PLATFORM = iota
+		SERVERADDRESS
+		SERVERPORT
+		ID
+		RETRYCOUNT
+		RETRYPERIOD
+	)
+
+	if len(c.Args) < 3 {
+		log.Printf("Usage: platform configclient serverAddress serverPort (id) (retryCount) (retryPeriod)")
+		return
+	}
+
+	platform := c.Args[PLATFORM]
+	serverAddress := c.Args[SERVERADDRESS]
+	serverPort, err := strconv.Atoi(c.Args[SERVERPORT])
+	if err != nil {
+		log.Printf("Invalid port specified.")
+		return
+	}
+
+	id := common.GenerateString(8)
+
+	if len(c.Args) == ID+1 {
+		id = c.Args[ID]
+	}
+
+	outputPath := fmt.Sprintf("configured/%s", id)
+
+	if platform == "win" {
+		exec.Command("set GOOS=windows")
+		exec.Command("set GOARCH=386")
+		outputPath = fmt.Sprintf("configured/%s.exe", id)
+	}
+
+	flagString := fmt.Sprintf("-s -w -X main.ID=%s -X main.serverAddress=%s -X main.serverPort=%d", id, serverAddress, serverPort)
+
+	cmd := exec.Command("go", "build", "-ldflags", flagString, "-o", outputPath, "gClient/gClient.go")
+	cmd.Env = os.Environ()
+	if platform == "win" {
+		cmd.Env = append(cmd.Env, "GOOS=windows")
+		cmd.Env = append(cmd.Env, "GOARCH=386")
+	}
+	err = cmd.Run()
+}
+
 func (s *gServer) UIDeleteTunnel(c *ishell.Context) {
 	if s.currentEndpoint == "" {
 		c.Printf("No endpoint selected")
@@ -377,6 +338,27 @@ func (s *gServer) UIDeleteTunnel(c *ishell.Context) {
 	endpoint.RemoveTunnel(tunID)
 }
 
+func (s *gServer) UIDisconnectEndpoint(c *ishell.Context) {
+	var ID string
+	if s.currentEndpoint == "" {
+		ID = c.Args[0]
+	} else {
+		ID = s.currentEndpoint
+	}
+	log.Printf("Disconnecting %s", ID)
+	endpointInput, ok := s.endpointInputs[ID]
+	if !ok {
+		log.Printf("Unable to locate endpoint input channel. Addtunnel failed")
+		return
+	}
+
+	controlMessage := new(pb.EndpointControlMessage)
+	controlMessage.Operation = common.EndpointCtrlDisconnect
+
+	endpointInput <- controlMessage
+
+}
+
 func main() {
 	flag.Parse()
 	lis, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", *port))
@@ -397,12 +379,28 @@ func main() {
 	go grpcServer.Serve(lis)
 
 	shell := ishell.New()
-	shell.Println("Tunnel manager")
+	shell.Println(`
+       ___________ ____ ___ _______    _______   ___________.____     
+   ___ \__    ___/|    |   \\      \   \      \  \_   _____/|    |    
+  / ___\ |    |   |    |   //   |   \  /   |   \  |    __)_ |    |    
+ / /_/  >|    |   |    |  //    |    \/    |    \ |        \|    |___ 
+ \___  / |____|   |______/ \____|__  /\____|__  //_______  /|_______ \
+/_____/                            \/         \/         \/         \/
+
+`)
+ 
 
 	shell.AddCmd(&ishell.Cmd{
 		Name: "use",
 		Help: "Select endpoint to use",
 		Func: s.UISetCurrentEndpoint,
+		Completer: func([]string) []string {
+			keys := make([]string, len(s.endpoints))
+			for k := range s.endpoints {
+				keys = append(keys, k)
+			}
+			return keys
+		},
 	})
 
 	shell.AddCmd(&ishell.Cmd{
@@ -421,6 +419,19 @@ func main() {
 		Name: "deltunnel",
 		Help: "Remove tunnel",
 		Func: s.UIDeleteTunnel,
+		Completer: func([]string) []string {
+
+			if s.currentEndpoint == "" {
+				return nil
+			}
+			endpoint := s.endpoints[s.currentEndpoint]
+			tunnels := endpoint.GetTunnels()
+			keys := make([]string, len(tunnels))
+			for k := range tunnels {
+				keys = append(keys, k)
+			}
+			return keys
+		},
 	})
 
 	shell.AddCmd(&ishell.Cmd{
@@ -428,6 +439,30 @@ func main() {
 		Help: "Lists all tunnels for an endpoint",
 		Func: s.UIListTunnels,
 	})
+
+	shell.AddCmd(&ishell.Cmd{
+		Name: "configclient",
+		Help: "Configure a gClient",
+		Func: s.UIGenerateClient,
+	})
+
+	shell.AddCmd(&ishell.Cmd{
+		Name: "disconnect",
+		Help: "Disconnect a gClient from the server",
+		Func: s.UIDisconnectEndpoint,
+		Completer: func([]string) []string {
+			if s.currentEndpoint != "" {
+				return nil
+			}
+			keys := make([]string, len(s.endpoints))
+			for k := range s.endpoints {
+				keys = append(keys, k)
+			}
+			return keys
+		},
+	})
+
+	s.shell = shell
 
 	/*shell.AddCmd(&ishell.Cmd{
 		Name: "listconns",

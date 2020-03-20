@@ -20,14 +20,14 @@ ENV PATH=$PATH:$GOPATH/bin
 RUN ./build_protoc.sh
 
 COPY build/build_all.sh .
-COPY server/ server/.
-COPY client/ client/.
+COPY gServer/ gServer/.
+COPY gClient/ gClient/.
 COPY common/ common/.
 
 RUN go get -d -v ./...
 RUN go install -v ./...
 
-CMD ["go", "run", "server/server.go"]
+CMD ["go", "run", "gServer/gServer.go"]
 
 
 	

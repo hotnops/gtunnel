@@ -2,8 +2,6 @@ package common
 
 import (
 	pb "gTunnel/gTunnel"
-	"io"
-	"log"
 	"net"
 )
 
@@ -41,9 +39,11 @@ func (c *Connection) GetStream() ByteStream {
 }
 
 func (c *Connection) Close() {
-	log.Printf("Closing connection")
 	c.TCPConn.Close()
-	c.Kill <- true
+	if c.Status != ConnectionStatusClosed {
+		close(c.Kill)
+		c.Status = ConnectionStatusClosed
+	}
 }
 
 func (c *Connection) handleIngressData() {
@@ -52,7 +52,11 @@ func (c *Connection) handleIngressData() {
 
 	go func(s ByteStream) {
 		for {
-			message, _ := s.Recv()
+			message, err := s.Recv()
+			if err != nil {
+				c.Close()
+				return
+			}
 			inputChan <- message
 		}
 	}(c.byteStream)
@@ -64,8 +68,11 @@ func (c *Connection) handleIngressData() {
 				inputChan = nil
 				break
 			}
-			if len(bytesMessage.Content) == 0 {
-				log.Printf("TCP connection closed on other side")
+			if bytesMessage == nil {
+				c.TCPConn.Close()
+				inputChan = nil
+				break
+			} else if len(bytesMessage.Content) == 0 {
 				c.remoteClose = true
 				c.TCPConn.Close()
 				inputChan = nil
@@ -73,7 +80,6 @@ func (c *Connection) handleIngressData() {
 			} else {
 				bytesSent, err := c.TCPConn.Write(bytesMessage.Content)
 				if err != nil {
-					log.Printf("Failed to send data to tcp connection: %v", err)
 					c.SendCloseMessage()
 					inputChan = nil
 					break
@@ -86,7 +92,6 @@ func (c *Connection) handleIngressData() {
 			break
 		}
 	}
-	log.Printf("handleIngressData done")
 }
 
 func (c *Connection) SendCloseMessage() {
@@ -104,11 +109,6 @@ func (c *Connection) handleEgressData() {
 			bytes := make([]byte, 4096)
 			bytesRead, err := t.Read(bytes)
 			if err != nil {
-				if err == io.EOF {
-					log.Printf("Connection closed locally")
-				} else {
-					log.Printf("Error reading tcp data: %v", err)
-				}
 				if !c.remoteClose {
 					bytes = make([]byte, 4096)
 				}
@@ -140,11 +140,9 @@ func (c *Connection) handleEgressData() {
 			break
 		}
 	}
-	log.Printf("Handle egressData done")
 }
 
 func (c *Connection) Start() {
-	log.Printf("Starting connection")
 	go c.handleIngressData()
 	go c.handleEgressData()
 }
