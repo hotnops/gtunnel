@@ -6,28 +6,12 @@ import (
 	"gTunnel/common"
 	pb "gTunnel/gTunnel"
 	"io"
-	"net"
 	"google.golang.org/grpc"
 )
 
 var ID = "UNCONFIGURED"
 var serverAddress = "UNCONFIGURED"
 var serverPort = "" // This needs to be a string to be used with -X
-
-/*var (
-	tls        = flag.Bool("tls", false, "Connection uses TLS if true, else plain TCP")
-	caFile     = flag.String("ca_file", "", "The file containing the CA root cert file")
-	serverAddr = flag.String("server_addr", "127.0.0.1:5555", "The server address in the format of host:port")
-)*/
-
-func intToIP(ip uint32) string {
-	result := make(net.IP, 4)
-	result[3] = byte(ip)
-	result[2] = byte(ip >> 8)
-	result[1] = byte(ip >> 16)
-	result[0] = byte(ip >> 24)
-	return result.String()
-}
 
 type gClient struct {
 	endpoint   *common.Endpoint
@@ -42,6 +26,7 @@ type ClientStreamHandler struct {
 	gCtx       context.Context
 	ctrlStream common.TunnelControlStream
 }
+
 
 func (c *ClientStreamHandler) GetByteStream(ctrlMessage *pb.TunnelControlMessage) common.ByteStream {
 	stream, err := c.client.CreateConnectionStream(c.gCtx)
@@ -71,7 +56,7 @@ func (c *ClientStreamHandler) Acknowledge(ctrlMessage *pb.TunnelControlMessage) 
 }
 
 func (c *ClientStreamHandler) CloseStream(connId int32) {
-
+	return
 }
 
 func (c *gClient) receiveClientControlMessages() {
@@ -137,11 +122,6 @@ func main() {
 	var cancel context.CancelFunc
 
 	var opts []grpc.DialOption
-	/*if *tls {
-		if *caFile == "" {
-			*caFile = testdata.Path("ca.pem")
-		}
-	}*/
 	opts = append(opts, grpc.WithInsecure())
 
 	//retryCount := 5
