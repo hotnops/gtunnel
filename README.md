@@ -1,5 +1,5 @@
 # gTunnel
-A tunneling suite built with golang and gRPC
+A tunneling suite built with golang and gRPC. I wanted to learn a new language, so I picked go and gRPC. Client executables have been tested on windows and linux.
 
 
 # How to use.
@@ -98,7 +98,7 @@ To exit out of the server, run the exit command:
 </pre>
 Note that this will remove the docker container, but any tls generated certificates and configured executables will be in the tls/ and configured/ directories.
 
-#TODO
+# TODO
 
 [x] Reverse tunnel support
 
@@ -113,3 +113,8 @@ Note that this will remove the docker container, but any tls generated certifica
 [] Authentication between client and server
 
 [] Server configuration file on input with pre-configured tunnels
+
+# Known Issues
+
+* Intenet Explorer is causing the client to lock up on reverse tunnels
+* The startup server script should reuse the built image, not create a new one every time.
