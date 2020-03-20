@@ -6,6 +6,7 @@ import (
 	"gTunnel/common"
 	pb "gTunnel/gTunnel"
 	"io"
+
 	"google.golang.org/grpc"
 )
 
@@ -27,7 +28,8 @@ type ClientStreamHandler struct {
 	ctrlStream common.TunnelControlStream
 }
 
-
+// GetByteStream is responsible for returning a bi-directional gRPC
+// stream that will be used for relaying TCP data.
 func (c *ClientStreamHandler) GetByteStream(ctrlMessage *pb.TunnelControlMessage) common.ByteStream {
 	stream, err := c.client.CreateConnectionStream(c.gCtx)
 	if err != nil {
@@ -51,14 +53,19 @@ func (c *ClientStreamHandler) GetByteStream(ctrlMessage *pb.TunnelControlMessage
 	return stream
 }
 
+// Acknowledge is called to indicate that the TCP connection has been
+// established on the remote side of the tunnel.
 func (c *ClientStreamHandler) Acknowledge(ctrlMessage *pb.TunnelControlMessage) common.ByteStream {
 	return c.GetByteStream(ctrlMessage)
 }
 
+// CloseStream does nothing.
 func (c *ClientStreamHandler) CloseStream(connId int32) {
 	return
 }
 
+// receiveClientControlMessages is responsible for reading
+// all control messages and dealing with them appropriately.
 func (c *gClient) receiveClientControlMessages() {
 	ctrlMessageChan := make(chan *pb.EndpointControlMessage)
 
@@ -67,9 +74,8 @@ func (c *gClient) receiveClientControlMessages() {
 			message, err := c.Recv()
 			if err == io.EOF {
 				break
-			}
-			if err != nil {
-				return
+			} else if err != nil {
+				os.Exit()
 			}
 			ctrlMessageChan <- message
 		}
@@ -112,11 +118,12 @@ func (c *gClient) receiveClientControlMessages() {
 			}
 
 		case <-c.killClient:
-			return
+			os.Exit(0)
 		}
 	}
 }
 
+// Where the magic happens
 func main() {
 	var err error
 	var cancel context.CancelFunc

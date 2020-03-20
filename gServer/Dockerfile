@@ -28,7 +28,7 @@ COPY common/ common/.
 RUN go get -d -v ./...
 RUN go install -v ./...
 
-RUN mkdir tls && openssl req -new -newkey rsa:4096 -x509 -sha256 -days 365 -nodes -out tls/cert -subj "/C=US/ST=Denial/L=Springfield/O=Dis/CN=www.example.com" -keyout tls/key
+RUN mkdir tls && openssl req -new -newkey rsa:4096 -x509 -sha256 -days 365 -nodes -out tls/cert -subj "/C=/ST=/L=/O=/CN=" -keyout tls/key
 
 CMD ["go", "run", "gServer/gServer.go"]
 

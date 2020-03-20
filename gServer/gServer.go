@@ -40,6 +40,7 @@ type ServerConnectionHandler struct {
 	tunnelId   string
 }
 
+// GetByteStream will return the gRPC stream associated with a particular TCP connection.
 func (s *ServerConnectionHandler) GetByteStream(ctrlMessage *pb.TunnelControlMessage) common.ByteStream {
 	endpoint := s.server.endpoints[s.endpointId]
 	tunnel, ok := endpoint.GetTunnel(s.tunnelId)
@@ -62,6 +63,8 @@ func (s *ServerConnectionHandler) GetByteStream(ctrlMessage *pb.TunnelControlMes
 	return conn.GetStream()
 }
 
+// Acknowledge is called  when the remote client acknowledges that a tcp connection can
+// be established on the remote side.
 func (s *ServerConnectionHandler) Acknowledge(ctrlMessage *pb.TunnelControlMessage) common.ByteStream {
 	endpoint := s.server.endpoints[ctrlMessage.EndpointID]
 	tunnel, _ := endpoint.GetTunnel(ctrlMessage.TunnelID)
@@ -71,6 +74,7 @@ func (s *ServerConnectionHandler) Acknowledge(ctrlMessage *pb.TunnelControlMessa
 	return conn.GetStream()
 }
 
+//CloseStream will kill a TCP connection locally
 func (s *ServerConnectionHandler) CloseStream(connId int32) {
 	endpoint := s.server.endpoints[s.endpointId]
 	tunnel, _ := endpoint.GetTunnel(s.tunnelId)
@@ -80,8 +84,9 @@ func (s *ServerConnectionHandler) CloseStream(connId int32) {
 
 }
 
-// RPC function that will listen on the output channel and send
-// any messages over to the gClient.
+// CreateEndpointControl stream is a gRPC function that the client
+// calls to establish a one way stream that the server uses to issue
+// control messages to the remote endpoint.
 func (s *gServer) CreateEndpointControlStream(ctrlMessage *pb.EndpointControlMessage, stream pb.GTunnel_CreateEndpointControlStreamServer) error {
 	log.Printf("Endpoint connected: id: %s", ctrlMessage.EndpointID)
 
@@ -120,6 +125,9 @@ func (s *gServer) CreateEndpointControlStream(ctrlMessage *pb.EndpointControlMes
 	}
 }
 
+//CreateTunnelControlStream is a gRPC function that the client will call to
+// establish a bi-directional stream to relay control messages about new
+// and disconnected TCP connections.
 func (s *gServer) CreateTunnelControlStream(stream pb.GTunnel_CreateTunnelControlStreamServer) error {
 
 	tunMessage, err := stream.Recv()
@@ -136,6 +144,9 @@ func (s *gServer) CreateTunnelControlStream(stream pb.GTunnel_CreateTunnelContro
 	return nil
 }
 
+// CreateconnectionStream is a gRPC function that the clien twill call to
+// create a bi-directional data stream to carry data that gets delivered
+// over the TCP connection.
 func (s *gServer) CreateConnectionStream(stream pb.GTunnel_CreateConnectionStreamServer) error {
 	bytesMessage, _ := stream.Recv()
 	endpoint := s.endpoints[bytesMessage.EndpointID]
@@ -148,6 +159,7 @@ func (s *gServer) CreateConnectionStream(stream pb.GTunnel_CreateConnectionStrea
 	return nil
 }
 
+// UIAddTunnel is the UI function for adding a tunnel
 func (s *gServer) UIAddTunnel(c *ishell.Context) {
 	if s.currentEndpoint == "" {
 		log.Printf("No endpoint selected.")
@@ -229,6 +241,8 @@ func (s *gServer) UIAddTunnel(c *ishell.Context) {
 
 }
 
+// UISetCurrentEndpoint will change the UI prompt and indicate
+// what endpoint on which we should be operating.
 func (s *gServer) UISetCurrentEndpoint(c *ishell.Context) {
 	endpointId := c.Args[0]
 	if _, ok := s.endpoints[endpointId]; ok {
@@ -239,6 +253,7 @@ func (s *gServer) UISetCurrentEndpoint(c *ishell.Context) {
 	}
 }
 
+// UIBack will clear the current endpoint
 func (s *gServer) UIBack(c *ishell.Context) {
 	if s.currentEndpoint != "" {
 		s.currentEndpoint = ""
@@ -248,6 +263,8 @@ func (s *gServer) UIBack(c *ishell.Context) {
 	}
 }
 
+// UIListTunnels will list all tunnels related to the
+// current endpoint.
 func (s *gServer) UIListTunnels(c *ishell.Context) {
 	if s.currentEndpoint == "" {
 		c.Printf("No endpoint selected")
@@ -260,6 +277,8 @@ func (s *gServer) UIListTunnels(c *ishell.Context) {
 
 }
 
+// UIGenerateClient is responsible for building
+// a client executable with the provided parameters.
 func (s *gServer) UIGenerateClient(c *ishell.Context) {
 
 	const (
@@ -309,6 +328,8 @@ func (s *gServer) UIGenerateClient(c *ishell.Context) {
 	err = cmd.Run()
 }
 
+// UIDelete tunnel will kill all TCP connections under the tunnel
+// and remove them from the list of managed tunnels.
 func (s *gServer) UIDeleteTunnel(c *ishell.Context) {
 	if s.currentEndpoint == "" {
 		c.Printf("No endpoint selected")
@@ -338,6 +359,8 @@ func (s *gServer) UIDeleteTunnel(c *ishell.Context) {
 	endpoint.RemoveTunnel(tunID)
 }
 
+// UIDisconnectEndpoint will send a control message to the
+// current endpoint to disconnect and end execution.
 func (s *gServer) UIDisconnectEndpoint(c *ishell.Context) {
 	var ID string
 	if s.currentEndpoint == "" {
@@ -359,6 +382,7 @@ func (s *gServer) UIDisconnectEndpoint(c *ishell.Context) {
 
 }
 
+// What it do
 func main() {
 	flag.Parse()
 	lis, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", *port))
@@ -388,7 +412,6 @@ func main() {
 /_____/                            \/         \/         \/         \/
 
 `)
- 
 
 	shell.AddCmd(&ishell.Cmd{
 		Name: "use",

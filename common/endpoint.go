@@ -58,6 +58,8 @@ func (e *Endpoint) RemoveTunnel(tunID string) bool {
 	return true
 }
 
+// Stop will close all tunnels and the associated TCP
+// connections with each tunnel.
 func (e *Endpoint) Stop() {
 	for id, _ := range e.tunnels {
 		e.RemoveTunnel(id)

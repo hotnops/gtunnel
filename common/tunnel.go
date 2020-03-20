@@ -41,6 +41,8 @@ func NewTunnel(id string, localPort uint32, localIP uint32, remoteIP uint32, rem
 	return t
 }
 
+// GetConnection will return a Connection object
+// with the given connection id
 func (t *Tunnel) GetConnection(connId int32) *Connection {
 	if conn, ok := t.connections[connId]; ok {
 		return conn
@@ -49,28 +51,32 @@ func (t *Tunnel) GetConnection(connId int32) *Connection {
 	}
 }
 
+// GetConnections will return the connection map
 func (t *Tunnel) GetConnections() map[int32]*Connection {
 	return t.connections
 }
 
-func (t *Tunnel) SignalConnect() {
-	t.connected <- true
-}
-
+// GetControlStream will return the control stream for
+// the associated tunnel
 func (t *Tunnel) GetControlStream() TunnelControlStream {
 	return t.ctrlStream
 }
 
+// SetControlStream will set the provided control stream for
+// the associated tunnel
 func (t *Tunnel) SetControlStream(s TunnelControlStream) {
 	t.ctrlStream = s
 }
 
+// Start receiving control messages for the tunnel
 func (t *Tunnel) Start() {
 	// A thread for handling the established tcp connections
 	go t.handleIngressCtrlMessages()
 
 }
 
+// Stop will stop all associated goroutines for the tunnel
+// and disconnect any associated TCP connections
 func (t *Tunnel) Stop() {
 	// First, stop all the listeners
 	for _, ln := range t.listeners {
@@ -85,6 +91,8 @@ func (t *Tunnel) Stop() {
 	close(t.Kill)
 }
 
+// handleIngressCtrlMessages is the loop function responsible
+// for receiving control messages from the gRPC stream.
 func (t *Tunnel) handleIngressCtrlMessages() {
 	ingressMessages := make(chan *pb.TunnelControlMessage)
 	go func(s TunnelControlStream) {
@@ -153,6 +161,8 @@ func (t *Tunnel) handleIngressCtrlMessages() {
 	}
 }
 
+// AddListener will start a tcp listener on a specific port and forward
+// all accepted TCP connections to the associated tunnel.
 func (t *Tunnel) AddListener(listenPort int32, endpointId string) bool {
 	ln, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", listenPort))
 	if err != nil {
@@ -194,12 +204,16 @@ func (t *Tunnel) AddListener(listenPort int32, endpointId string) bool {
 	return true
 }
 
+// Addconnection will generate an ID for the connection and
+// add it to the map.
 func (t *Tunnel) AddConnection(c *Connection) {
 	c.Id = t.connectionCount
 	t.connections[t.connectionCount] = c
 	t.connectionCount += 1
 }
 
+// RemoveConnection will remove the Connection object
+// from the connections map.
 func (t *Tunnel) RemoveConnection(connId int32) {
 	delete(t.connections, connId)
 }
