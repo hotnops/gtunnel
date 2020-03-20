@@ -18,11 +18,11 @@ import (
 )
 
 var (
-	tls        = flag.Bool("tls", false, "Connection uses TLS if true, else plain TCP")
-	certFile   = flag.String("cert_file", "", "The TLS cert file")
-	keyFile    = flag.String("key_file", "", "The TLS key file")
+	tls        = flag.Bool("tls", true, "Connection uses TLS if true, else plain TCP")
+	certFile   = flag.String("cert_file", "tls/cert", "The TLS cert file")
+	keyFile    = flag.String("key_file", "tls/key", "The TLS key file")
 	jsonDBFile = flag.String("json_db_file", "", "A json file containing a list of features")
-	port       = flag.Int("port", 5555, "The server port")
+	port       = flag.Int("port", 443, "The server port")
 )
 
 type gServer struct {
