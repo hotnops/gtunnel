@@ -1,6 +1,8 @@
 # gTunnel
 A TCP tunneling suite built with golang and gRPC. gTunnel can manage multiple forward and reverse tunnels that are all carried over a single TCP/HTTP2 connection. I wanted to learn a new language, so I picked go and gRPC. Client executables have been tested on windows and linux.
 
+# Dependencies
+gTunnel has been tested with Docker version 19.03.6, but any version of docker should do.
 
 # How to use.
 The start_server.sh script will build a docker image and start it with no exposed ports. If you plan on using forward tunnels, make sure to map those ports or to change the docker network.
