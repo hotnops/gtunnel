@@ -74,6 +74,12 @@ To delete a tunnel, use the "deltunnel" command:
 (test) >>> deltunnel smbtun
 Deleting tunnel : smbtun
 </pre>
+To start a socks proxy server on target, use the socks command. The following command will start a socks server on port 1080 on the host running gClient. Usually, you will need to create a tunnel from the gTunnel prompt to use the socks server.
+<pre>
+socks 1080
+addtunnel local 1080 127.0.0.1 1080
+</pre>
+
 
 To go back and work with another remote system, use the back command:
 <pre>
@@ -110,7 +116,7 @@ Note that this will remove the docker container, but any tls generated certifica
 
 [] Add REST API and implement web UI
 
-[] Dynamic socks proxy support.
+[X] Dynamic socks proxy support.
 
 [] Authentication between client and server
 
