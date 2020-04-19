@@ -6,20 +6,29 @@ import (
 	"gTunnel/common"
 	pb "gTunnel/gTunnel"
 	"io"
+	"log"
+	"os"
 
 	"google.golang.org/grpc"
 )
+
 
 var ID = "UNCONFIGURED"
 var serverAddress = "UNCONFIGURED"
 var serverPort = "" // This needs to be a string to be used with -X
 
+
+//var ID = "DEBUG"
+//var serverAddress = "127.0.0.1"
+//var serverPort = "5555"
+
 type gClient struct {
-	endpoint   *common.Endpoint
-	ctrlStream pb.GTunnel_CreateEndpointControlStreamClient
-	grpcClient pb.GTunnelClient
-	killClient chan bool
-	gCtx       context.Context
+	endpoint    *common.Endpoint
+	ctrlStream  pb.GTunnel_CreateEndpointControlStreamClient
+	grpcClient  pb.GTunnelClient
+	killClient  chan bool
+	gCtx        context.Context
+	socksServer *common.SocksServer
 }
 
 type ClientStreamHandler struct {
@@ -75,7 +84,7 @@ func (c *gClient) receiveClientControlMessages() {
 			if err == io.EOF {
 				break
 			} else if err != nil {
-				os.Exit()
+				os.Exit(0)
 			}
 			ctrlMessageChan <- message
 		}
@@ -113,6 +122,23 @@ func (c *gClient) receiveClientControlMessages() {
 				c.endpoint.AddTunnel(message.TunnelID, newTunnel)
 				newTunnel.Start()
 
+			} else if operation == common.EndpointCtrlSocksProxy {
+				message.Operation = common.EndpointCtrlSocksProxyAck
+				message.ErrorStatus = 0
+				if c.socksServer != nil {
+					message.ErrorStatus = 1
+				}
+				log.Printf("Starting socks server")
+				c.socksServer = common.NewSocksServer(message.RemotePort)
+				if !c.socksServer.Start() {
+					message.ErrorStatus = 2
+				}
+				//c.ctrlStream.SendMsg(message)
+			} else if operation == common.EndpointCtrlSocksKill {
+				if c.socksServer != nil {
+					c.socksServer.Stop()
+					c.socksServer = nil
+				}
 			} else if operation == common.EndpointCtrlDisconnect {
 				close(c.killClient)
 			}
@@ -137,6 +163,7 @@ func main() {
 	gClient := new(gClient)
 	gClient.endpoint = common.NewEndpoint(ID)
 	gClient.killClient = make(chan bool)
+	gClient.socksServer = nil
 
 	serverAddr := fmt.Sprintf("%s:%s", serverAddress, serverPort)
 

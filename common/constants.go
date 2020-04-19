@@ -4,6 +4,9 @@ const (
 	EndpointCtrlDisconnect = iota
 	EndpointCtrlAddRTunnel
 	EndpointCtrlAddTunnel
+	EndpointCtrlSocksProxy
+	EndpointCtrlSocksProxyAck
+	EndpointCtrlSocksKill
 	EndpointCtrlDeleteTunnel
 )
 

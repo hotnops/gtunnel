@@ -382,6 +382,55 @@ func (s *gServer) UIDisconnectEndpoint(c *ishell.Context) {
 
 }
 
+func (s *gServer) UIStartProxy(c *ishell.Context) {
+	if s.currentEndpoint == "" {
+		log.Printf("No enndpoint selected.")
+		return
+	}
+
+	if len(c.Args) < 1 {
+		log.Printf("Usage: socks remotePort")
+		return
+	}
+
+	remotePort, err := strconv.Atoi(c.Args[0])
+	if err != nil {
+		log.Printf("Invalid remotePort")
+		return
+	}
+
+	endpointInput, ok := s.endpointInputs[s.currentEndpoint]
+	if !ok {
+		log.Printf("Unable to locate endpoint input channel. socks failed")
+		return
+	}
+
+	log.Printf("Starting socks proxy on : %d", remotePort)
+	controlMessage := new(pb.EndpointControlMessage)
+	controlMessage.Operation = common.EndpointCtrlSocksProxy
+	controlMessage.RemotePort = uint32(remotePort)
+
+	endpointInput <- controlMessage
+}
+
+func (s *gServer) UIStopProxy(c *ishell.Context) {
+	if s.currentEndpoint == "" {
+		log.Printf("No enndpoint selected.")
+		return
+	}
+
+	endpointInput, ok := s.endpointInputs[s.currentEndpoint]
+	if !ok {
+		log.Printf("Unable to locate endpoint input channel. socks failed")
+		return
+	}
+
+	controlMessage := new(pb.EndpointControlMessage)
+	controlMessage.Operation = common.EndpointCtrlSocksKill
+
+	endpointInput <- controlMessage
+}
+
 // What it do
 func main() {
 	flag.Parse()
@@ -461,6 +510,18 @@ func main() {
 		Name: "listtunnels",
 		Help: "Lists all tunnels for an endpoint",
 		Func: s.UIListTunnels,
+	})
+
+	shell.AddCmd(&ishell.Cmd{
+		Name: "socks",
+		Help: "Starts a socks proxy on the remote endpoints",
+		Func: s.UIStartProxy,
+	})
+
+	shell.AddCmd(&ishell.Cmd{
+		Name: "sockskill",
+		Help: "Stops a socks proxy on the remote endpoints",
+		Func: s.UIStopProxy,
 	})
 
 	shell.AddCmd(&ishell.Cmd{
