@@ -23,7 +23,8 @@ func NewSocksServer(port uint32) *SocksServer {
 }
 
 func (s *SocksServer) Start() bool {
-	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", s.servePort))
+	var err error
+	s.listener, err = net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", s.servePort))
 
 	if err != nil {
 		log.Printf("Failed to start socks listener")
@@ -33,7 +34,7 @@ func (s *SocksServer) Start() bool {
 
 	go func() {
 		for {
-			conn, err := listener.Accept()
+			conn, err := s.listener.Accept()
 			if err != nil {
 				break
 			}
