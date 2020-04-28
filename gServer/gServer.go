@@ -290,8 +290,8 @@ func (s *gServer) UIGenerateClient(c *ishell.Context) {
 		RETRYPERIOD
 	)
 
-	if len(c.Args) < 3 {
-		log.Printf("Usage: platform configclient serverAddress serverPort (id) (retryCount) (retryPeriod)")
+	if len(c.Args) < 4 {
+		log.Printf("Usage: configclient platform serverAddress serverPort (id) (retryCount) (retryPeriod)")
 		return
 	}
 
