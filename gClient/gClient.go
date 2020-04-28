@@ -12,15 +12,9 @@ import (
 	"google.golang.org/grpc"
 )
 
-
 var ID = "UNCONFIGURED"
 var serverAddress = "UNCONFIGURED"
 var serverPort = "" // This needs to be a string to be used with -X
-
-
-//var ID = "DEBUG"
-//var serverAddress = "127.0.0.1"
-//var serverPort = "5555"
 
 type gClient struct {
 	endpoint    *common.Endpoint
