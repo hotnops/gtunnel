@@ -15,6 +15,7 @@ import (
 
 	"github.com/abiosoft/ishell"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 )
 
 var (
@@ -438,7 +439,14 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
-	var opts []grpc.ServerOption
+
+	creds, err := credentials.NewServerTLSFromFile(*certFile, *keyFile)
+
+	if err != nil {
+		log.Fatalf("Failed to load TLS certificates.")
+	}
+
+	log.Printf("Successfully loaded key/certificate pair")
 
 	s := new(gServer)
 	//s.connections = make(map[int32]common.Connection)
@@ -446,7 +454,7 @@ func main() {
 	s.endpointInputs = make(map[string]chan *pb.EndpointControlMessage)
 	s.endpoints = make(map[string]*common.Endpoint)
 
-	grpcServer := grpc.NewServer(opts...)
+	grpcServer := grpc.NewServer(grpc.Creds(creds))
 
 	pb.RegisterGTunnelServer(grpcServer, s)
 	go grpcServer.Serve(lis)

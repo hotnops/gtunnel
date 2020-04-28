@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"gTunnel/common"
 	pb "gTunnel/gTunnel"
@@ -10,11 +11,16 @@ import (
 	"os"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 )
 
 var ID = "UNCONFIGURED"
 var serverAddress = "UNCONFIGURED"
 var serverPort = "" // This needs to be a string to be used with -X
+
+//var ID = "TEST"
+//var serverAddress = "127.0.0.1"
+//var serverPort = "443"
 
 type gClient struct {
 	endpoint    *common.Endpoint
@@ -148,8 +154,13 @@ func main() {
 	var err error
 	var cancel context.CancelFunc
 
+	config := &tls.Config{
+		InsecureSkipVerify: true,
+	}
+
 	var opts []grpc.DialOption
-	opts = append(opts, grpc.WithInsecure())
+	opts = append(opts, grpc.WithTransportCredentials(credentials.NewTLS(config)))
+	//opts = append(opts, grpc.WithInsecure())
 
 	//retryCount := 5
 	//retryPeriod := 30
