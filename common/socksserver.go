@@ -2,7 +2,6 @@ package common
 
 import (
 	"fmt"
-	"log"
 	"net"
 	"time"
 
@@ -27,10 +26,8 @@ func (s *SocksServer) Start() bool {
 	s.listener, err = net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", s.servePort))
 
 	if err != nil {
-		log.Printf("Failed to start socks listener")
 		return false
 	}
-	log.Printf("Socks listener started")
 
 	go func() {
 		for {
