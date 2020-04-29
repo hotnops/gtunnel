@@ -287,12 +287,14 @@ func (s *gServer) UIGenerateClient(c *ishell.Context) {
 		SERVERADDRESS
 		SERVERPORT
 		ID
+		HTTPSPROXY
+		HTTPPROXY
 		RETRYCOUNT
 		RETRYPERIOD
 	)
 
 	if len(c.Args) < 4 {
-		log.Printf("Usage: configclient platform serverAddress serverPort (id) (retryCount) (retryPeriod)")
+		log.Printf("Usage: configclient platform serverAddress serverPort (id) (https_proxy) (http_proxy)")
 		return
 	}
 
@@ -305,9 +307,19 @@ func (s *gServer) UIGenerateClient(c *ishell.Context) {
 	}
 
 	id := common.GenerateString(8)
+	http_proxy := ""
+	https_proxy := ""
 
-	if len(c.Args) == ID+1 {
+	if len(c.Args) > ID {
 		id = c.Args[ID]
+	}
+
+	if len(c.Args) > HTTPSPROXY {
+		https_proxy = c.Args[HTTPSPROXY]
+	}
+
+	if len(c.Args) > HTTPPROXY {
+		http_proxy = c.Args[HTTPPROXY]
 	}
 
 	outputPath := fmt.Sprintf("configured/%s", id)
@@ -319,6 +331,13 @@ func (s *gServer) UIGenerateClient(c *ishell.Context) {
 	}
 
 	flagString := fmt.Sprintf("-s -w -X main.ID=%s -X main.serverAddress=%s -X main.serverPort=%d", id, serverAddress, serverPort)
+
+	if len(https_proxy) > 0 {
+		flagString += fmt.Sprintf(" -X main.httpsProxyServer=%s", https_proxy)
+	}
+	if len(http_proxy) > 0 {
+		flagString += fmt.Sprintf(" -X main.httpProxyServer=%s", http_proxy)
+	}
 
 	cmd := exec.Command("go", "build", "-ldflags", flagString, "-o", outputPath, "gClient/gClient.go")
 	cmd.Env = os.Environ()

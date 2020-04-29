@@ -18,9 +18,8 @@ var ID = "UNCONFIGURED"
 var serverAddress = "UNCONFIGURED"
 var serverPort = "" // This needs to be a string to be used with -X
 
-//var ID = "TEST"
-//var serverAddress = "127.0.0.1"
-//var serverPort = "443"
+var httpProxyServer = ""
+var httpsProxyServer = ""
 
 type gClient struct {
 	endpoint    *common.Endpoint
@@ -158,12 +157,16 @@ func main() {
 		InsecureSkipVerify: true,
 	}
 
+	if len(httpProxyServer) > 0 {
+		os.Setenv("HTTP_PROXY", httpProxyServer)
+	}
+
+	if len(httpsProxyServer) > 0 {
+		os.Setenv("HTTPS_PROXY", httpsProxyServer)
+	}
+
 	var opts []grpc.DialOption
 	opts = append(opts, grpc.WithTransportCredentials(credentials.NewTLS(config)))
-	//opts = append(opts, grpc.WithInsecure())
-
-	//retryCount := 5
-	//retryPeriod := 30
 
 	gClient := new(gClient)
 	gClient.endpoint = common.NewEndpoint(ID)
