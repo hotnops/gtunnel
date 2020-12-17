@@ -16,10 +16,11 @@ import (
 	"github.com/abiosoft/ishell"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/reflection"
 )
 
 var (
-	tls        = flag.Bool("tls", true, "Connection uses TLS if true, else plain TCP")
+	tls        = flag.Bool("tls", true, "Connection uses TLS if true, else plain HTTP")
 	certFile   = flag.String("cert_file", "tls/cert", "The TLS cert file")
 	keyFile    = flag.String("key_file", "tls/key", "The TLS key file")
 	jsonDBFile = flag.String("json_db_file", "", "A json file containing a list of features")
@@ -459,13 +460,7 @@ func main() {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
-	creds, err := credentials.NewServerTLSFromFile(*certFile, *keyFile)
-
-	if err != nil {
-		log.Fatalf("Failed to load TLS certificates.")
-	}
-
-	log.Printf("Successfully loaded key/certificate pair")
+    var grpcServer *grpc.Server
 
 	s := new(gServer)
 	//s.connections = make(map[int32]common.Connection)
@@ -473,9 +468,27 @@ func main() {
 	s.endpointInputs = make(map[string]chan *pb.EndpointControlMessage)
 	s.endpoints = make(map[string]*common.Endpoint)
 
-	grpcServer := grpc.NewServer(grpc.Creds(creds))
+    log.Printf("[*] Tls : ", *tls)
+    if (*tls == true) {
+        creds, err := credentials.NewServerTLSFromFile(*certFile, *keyFile)
+
+	    if err != nil {
+		    log.Fatalf("Failed to load TLS certificates.")
+        }
+
+	    log.Printf("Successfully loaded key/certificate pair")
+	    grpcServer = grpc.NewServer(grpc.Creds(creds))
+    } else {
+        log.Printf("[!] Starting gServer without TLS!")
+	    grpcServer = grpc.NewServer()
+    }
+
+
 
 	pb.RegisterGTunnelServer(grpcServer, s)
+
+    reflection.Register(grpcServer)
+
 	go grpcServer.Serve(lis)
 
 	shell := ishell.New()
