@@ -20,3 +20,7 @@ const (
 	ConnectionStatusConnected = iota
 	ConnectionStatusClosed
 )
+
+const (
+	ConfigurationFile = ".gtunnel.conf"
+)

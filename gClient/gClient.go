@@ -14,9 +14,9 @@ import (
 	"google.golang.org/grpc/credentials"
 )
 
-var ID = "UNCONFIGURED"
 var serverAddress = "UNCONFIGURED"
 var serverPort = "" // This needs to be a string to be used with -X
+var clientToken = "UNCONFIGURED"
 
 var httpProxyServer = ""
 var httpsProxyServer = ""
@@ -166,10 +166,11 @@ func main() {
 	}
 
 	var opts []grpc.DialOption
-	opts = append(opts, grpc.WithTransportCredentials(credentials.NewTLS(config)))
+	opts = append(opts, grpc.WithTransportCredentials(credentials.NewTLS(config)),
+		grpc.WithPerRPCCredentials(common.NewToken(clientToken)))
 
 	gClient := new(gClient)
-	gClient.endpoint = common.NewEndpoint(ID)
+	gClient.endpoint = common.NewEndpoint()
 	gClient.killClient = make(chan bool)
 	gClient.socksServer = nil
 
@@ -184,6 +185,14 @@ func main() {
 	gClient.grpcClient = pb.NewGTunnelClient(conn)
 	gClient.gCtx, cancel = context.WithCancel(context.Background())
 	defer cancel()
+
+	emptyMsg := new(pb.Empty)
+	configMsg, err := gClient.grpcClient.GetConfigurationMessage(gClient.gCtx, emptyMsg)
+	if err != nil {
+		return
+	}
+
+	gClient.endpoint.SetID(configMsg.EndpointID)
 
 	conMsg := new(pb.EndpointControlMessage)
 	conMsg.EndpointID = gClient.endpoint.Id

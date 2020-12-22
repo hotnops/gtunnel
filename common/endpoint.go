@@ -69,10 +69,15 @@ func (e *Endpoint) Stop() {
 
 // NewEndpoint is a constructor for the endpoint
 // class. It takes an endpoint ID string as an argument.
-func NewEndpoint(id string) *Endpoint {
+func NewEndpoint() *Endpoint {
 	e := new(Endpoint)
-	e.Id = id
+	e.Id = ""
 	e.endpointCtrlStream = make(chan pb.EndpointControlMessage)
 	e.tunnels = make(map[string]*Tunnel)
 	return e
+}
+
+// SetID takes in a string and will set the Id to that string
+func (e *Endpoint) SetID(id string) {
+	e.Id = id
 }

@@ -34,6 +34,7 @@ type gServer struct {
 	keyboardInput   chan pb.EndpointControlMessage
 	currentEndpoint string
 	shell           *ishell.Shell
+	authStore       *common.AuthStore
 }
 
 type ServerConnectionHandler struct {
@@ -89,24 +90,29 @@ func (s *ServerConnectionHandler) CloseStream(connId int32) {
 // CreateEndpointControl stream is a gRPC function that the client
 // calls to establish a one way stream that the server uses to issue
 // control messages to the remote endpoint.
-func (s *gServer) CreateEndpointControlStream(ctrlMessage *pb.EndpointControlMessage, stream pb.GTunnel_CreateEndpointControlStreamServer) error {
+func (s *gServer) CreateEndpointControlStream(
+	ctrlMessage *pb.EndpointControlMessage,
+	stream pb.GTunnel_CreateEndpointControlStreamServer) error {
 	log.Printf("Endpoint connected: id: %s", ctrlMessage.EndpointID)
 
 	ctx, cancel := context.WithCancel(stream.Context())
 	defer cancel()
 
-	// This is for accepting keyboard input, each client needs their own channel
+	// This is for accepting keyboard input, each client needs their own
+	// channel
 	inputChannel := make(chan *pb.EndpointControlMessage)
 	s.endpointInputs[ctrlMessage.EndpointID] = inputChannel
 
-	s.endpoints[ctrlMessage.EndpointID] = common.NewEndpoint(ctrlMessage.EndpointID)
+	s.endpoints[ctrlMessage.EndpointID] = common.NewEndpoint()
+	s.endpoints[ctrlMessage.EndpointID].SetID(ctrlMessage.EndpointID)
 
 	for {
 		select {
 
 		case controlMessage, ok := <-inputChannel:
 			if !ok {
-				log.Printf("Failed to read from EndpointCtrlStream channel. Exiting")
+				log.Printf(
+					"Failed to read from EndpointCtrlStream channel. Exiting")
 				break
 			}
 			controlMessage.EndpointID = ctrlMessage.EndpointID
@@ -115,7 +121,8 @@ func (s *gServer) CreateEndpointControlStream(ctrlMessage *pb.EndpointControlMes
 			log.Printf("Endpoint disconnected: %s", ctrlMessage.EndpointID)
 			endpoint, ok := s.endpoints[ctrlMessage.EndpointID]
 			if !ok {
-				log.Printf("Endpoint already removed: %s", ctrlMessage.EndpointID)
+				log.Printf("Endpoint already removed: %s",
+					ctrlMessage.EndpointID)
 			}
 			endpoint.Stop()
 			delete(s.endpoints, ctrlMessage.EndpointID)
@@ -127,10 +134,29 @@ func (s *gServer) CreateEndpointControlStream(ctrlMessage *pb.EndpointControlMes
 	}
 }
 
+func (s *gServer) GetConfigurationMessage(ctx context.Context, empty *pb.Empty) (
+	*pb.ConfigurationMessage, error) {
+
+	token, err := common.GetBearerTokenFromCtx(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	clientConfig, err := s.authStore.GetClientConfig(token)
+
+	configMsg := new(pb.ConfigurationMessage)
+	configMsg.EndpointID = clientConfig.ID
+	configMsg.KillDate = 0
+
+	return configMsg, nil
+
+}
+
 //CreateTunnelControlStream is a gRPC function that the client will call to
 // establish a bi-directional stream to relay control messages about new
 // and disconnected TCP connections.
-func (s *gServer) CreateTunnelControlStream(stream pb.GTunnel_CreateTunnelControlStreamServer) error {
+func (s *gServer) CreateTunnelControlStream(
+	stream pb.GTunnel_CreateTunnelControlStreamServer) error {
 
 	tunMessage, err := stream.Recv()
 	if err != nil {
@@ -146,10 +172,11 @@ func (s *gServer) CreateTunnelControlStream(stream pb.GTunnel_CreateTunnelContro
 	return nil
 }
 
-// CreateconnectionStream is a gRPC function that the clien twill call to
+// CreateconnectionStream is a gRPC function that the client twill call to
 // create a bi-directional data stream to carry data that gets delivered
 // over the TCP connection.
-func (s *gServer) CreateConnectionStream(stream pb.GTunnel_CreateConnectionStreamServer) error {
+func (s *gServer) CreateConnectionStream(
+	stream pb.GTunnel_CreateConnectionStreamServer) error {
 	bytesMessage, _ := stream.Recv()
 	endpoint := s.endpoints[bytesMessage.EndpointID]
 	tunnel, _ := endpoint.GetTunnel(bytesMessage.TunnelID)
@@ -246,12 +273,12 @@ func (s *gServer) UIAddTunnel(c *ishell.Context) {
 // UISetCurrentEndpoint will change the UI prompt and indicate
 // what endpoint on which we should be operating.
 func (s *gServer) UISetCurrentEndpoint(c *ishell.Context) {
-	endpointId := c.Args[0]
-	if _, ok := s.endpoints[endpointId]; ok {
-		s.currentEndpoint = endpointId
-		c.SetPrompt(fmt.Sprintf("(%s) >>> ", endpointId))
+	endpointID := c.Args[0]
+	if _, ok := s.endpoints[endpointID]; ok {
+		s.currentEndpoint = endpointID
+		c.SetPrompt(fmt.Sprintf("(%s) >>> ", endpointID))
 	} else {
-		c.Printf("Endpoint %s does not exist.", endpointId)
+		c.Printf("Endpoint %s does not exist.", endpointID)
 	}
 }
 
@@ -323,6 +350,8 @@ func (s *gServer) UIGenerateClient(c *ishell.Context) {
 		http_proxy = c.Args[HTTPPROXY]
 	}
 
+	token, err := s.authStore.GenerateNewClientConfig(id)
+
 	outputPath := fmt.Sprintf("configured/%s", id)
 
 	if platform == "win" {
@@ -331,7 +360,7 @@ func (s *gServer) UIGenerateClient(c *ishell.Context) {
 		outputPath = fmt.Sprintf("configured/%s.exe", id)
 	}
 
-	flagString := fmt.Sprintf("-s -w -X main.ID=%s -X main.serverAddress=%s -X main.serverPort=%d", id, serverAddress, serverPort)
+	flagString := fmt.Sprintf("-s -w -X main.clientToken=%s -X main.serverAddress=%s -X main.serverPort=%d", token, serverAddress, serverPort)
 
 	if len(https_proxy) > 0 {
 		flagString += fmt.Sprintf(" -X main.httpsProxyServer=%s", https_proxy)
@@ -347,6 +376,10 @@ func (s *gServer) UIGenerateClient(c *ishell.Context) {
 		cmd.Env = append(cmd.Env, "GOARCH=386")
 	}
 	err = cmd.Run()
+	if err != nil {
+		log.Printf("[!] Failed to generate client: %s", err)
+		s.authStore.DeleteClientConfig(token)
+	}
 }
 
 // UIDelete tunnel will kill all TCP connections under the tunnel
@@ -460,34 +493,36 @@ func main() {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
-    var grpcServer *grpc.Server
+	var grpcServer *grpc.Server
 
 	s := new(gServer)
 	//s.connections = make(map[int32]common.Connection)
 	s.keyboardInput = make(chan pb.EndpointControlMessage)
 	s.endpointInputs = make(map[string]chan *pb.EndpointControlMessage)
 	s.endpoints = make(map[string]*common.Endpoint)
+	s.authStore, err = common.InitializeAuthStore(common.ConfigurationFile)
 
-    log.Printf("[*] Tls : ", *tls)
-    if (*tls == true) {
-        creds, err := credentials.NewServerTLSFromFile(*certFile, *keyFile)
+	var opts []grpc.ServerOption
+	opts = append(opts, grpc.UnaryInterceptor(common.UnaryAuthInterceptor))
 
-	    if err != nil {
-		    log.Fatalf("Failed to load TLS certificates.")
-        }
+	if *tls == true {
+		creds, err := credentials.NewServerTLSFromFile(*certFile, *keyFile)
 
-	    log.Printf("Successfully loaded key/certificate pair")
-	    grpcServer = grpc.NewServer(grpc.Creds(creds))
-    } else {
-        log.Printf("[!] Starting gServer without TLS!")
-	    grpcServer = grpc.NewServer()
-    }
+		if err != nil {
+			log.Fatalf("Failed to load TLS certificates.")
+		}
 
+		log.Printf("Successfully loaded key/certificate pair")
+		opts = append(opts, grpc.Creds(creds))
+	} else {
+		log.Printf("[!] Starting gServer without TLS!")
+	}
 
+	grpcServer = grpc.NewServer(opts...)
 
 	pb.RegisterGTunnelServer(grpcServer, s)
 
-    reflection.Register(grpcServer)
+	reflection.Register(grpcServer)
 
 	go grpcServer.Serve(lis)
 

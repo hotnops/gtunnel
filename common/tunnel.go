@@ -22,7 +22,6 @@ type Tunnel struct {
 	listeners         []net.Listener
 	Kill              chan bool
 	ctrlStream        TunnelControlStream
-	connected         chan bool
 	connectionCount   int32
 	ConnectionHandler ConnectionStreamHandler
 }
@@ -36,7 +35,6 @@ func NewTunnel(id string, localPort uint32, localIP uint32, remoteIP uint32, rem
 	t.remotePort = remotePort
 	t.connections = make(map[int32]*Connection)
 	t.Kill = make(chan bool)
-	t.connected = make(chan bool)
 	t.listeners = make([]net.Listener, 0)
 	return t
 }
