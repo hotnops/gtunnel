@@ -16,7 +16,6 @@ import (
 	"github.com/abiosoft/ishell"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/reflection"
 )
 
 var (
@@ -503,7 +502,10 @@ func main() {
 	s.authStore, err = common.InitializeAuthStore(common.ConfigurationFile)
 
 	var opts []grpc.ServerOption
-	opts = append(opts, grpc.UnaryInterceptor(common.UnaryAuthInterceptor))
+	opts = append(opts,
+		grpc.UnaryInterceptor(common.UnaryAuthInterceptor),
+		grpc.StreamInterceptor(common.StreamAuthInterceptor),
+	)
 
 	if *tls == true {
 		creds, err := credentials.NewServerTLSFromFile(*certFile, *keyFile)
@@ -521,8 +523,6 @@ func main() {
 	grpcServer = grpc.NewServer(opts...)
 
 	pb.RegisterGTunnelServer(grpcServer, s)
-
-	reflection.Register(grpcServer)
 
 	go grpcServer.Serve(lis)
 

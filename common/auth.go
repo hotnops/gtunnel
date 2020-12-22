@@ -282,6 +282,30 @@ func UnaryAuthInterceptor(ctx context.Context,
 		return nil, status.Errorf(codes.Unauthenticated, err.Error())
 	}
 
-	h, err := handler(ctx, req)
-	return h, err
+	return handler(ctx, req)
+}
+
+// StreamAuthInterceptor will check for proper authorization for all
+// stream based gRPC calls.
+func StreamAuthInterceptor(srv interface{},
+	ss grpc.ServerStream,
+	info *grpc.StreamServerInfo,
+	handler grpc.StreamHandler) error {
+
+	ctx := ss.Context()
+
+	token, err := GetBearerTokenFromCtx(ctx)
+
+	if err != nil {
+		return err
+	}
+
+	err = authStore.validateToken(token)
+
+	if err != nil {
+		log.Printf("[!] Invalid bearer token\n")
+		return status.Errorf(codes.Unauthenticated, err.Error())
+	}
+
+	return handler(srv, ss)
 }
