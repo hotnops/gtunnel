@@ -134,7 +134,7 @@ func (a *AuthStore) writeToFile() error {
 	err = ioutil.WriteFile(a.configFilename, jsonString, 600)
 	if err != nil {
 		log.Printf(
-			"[!] Failed to write auth dictionary to configuration file")
+			"[!] Failed to write auth dictionary to configuration file: %s\n", err)
 		return err
 	}
 	return nil
@@ -170,9 +170,11 @@ func (a *AuthStore) AddClientConfig(token string, client *ClientConfig) error {
 		return errors.New("Client already exists")
 	}
 	a.tokenToClient[token] = client
-	err := a.writeToFile()
-	if err != nil {
-		log.Printf("[!] Failed to write configuration to file\n")
+	if len(a.configFilename) > 0 {
+		err := a.writeToFile()
+		if err != nil {
+			log.Printf("[!] Failed to write configuration to file\n")
+		}
 	}
 
 	return nil
@@ -185,10 +187,12 @@ func (a *AuthStore) DeleteClientConfig(token string) error {
 	if _, ok := a.tokenToClient[token]; ok {
 		delete(a.tokenToClient, token)
 
-		err := a.writeToFile()
-		if err != nil {
-			log.Printf("[!] Failed to write configuration to file\n")
-			return err
+		if len(a.configFilename) > 0 {
+			err := a.writeToFile()
+			if err != nil {
+				log.Printf("[!] Failed to write configuration to file\n")
+				return err
+			}
 		}
 
 		return nil
