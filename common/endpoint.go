@@ -1,17 +1,17 @@
 package common
 
 import (
-	pb "gTunnel/gTunnel"
+	cs "github.com/hotnops/gTunnel/grpc/client"
 )
 
 type TunnelControlStream interface {
-	Send(*pb.TunnelControlMessage) error
-	Recv() (*pb.TunnelControlMessage, error)
+	Send(*cs.TunnelControlMessage) error
+	Recv() (*cs.TunnelControlMessage, error)
 }
 
 type ByteStream interface {
-	Send(*pb.BytesMessage) error
-	Recv() (*pb.BytesMessage, error)
+	Send(*cs.BytesMessage) error
+	Recv() (*cs.BytesMessage, error)
 }
 
 type gInterface interface {
@@ -23,7 +23,7 @@ type Endpoint struct {
 	Id                 string
 	killClient         chan bool
 	tunnels            map[string]*Tunnel
-	endpointCtrlStream chan pb.EndpointControlMessage
+	endpointCtrlStream chan cs.EndpointControlMessage
 }
 
 // AddTunnel adds a tunnel instance to the list of tunnels
@@ -45,10 +45,10 @@ func (e *Endpoint) GetTunnel(tunID string) (*Tunnel, bool) {
 	return t, ok
 }
 
-// RemoveTunnel takes in a tunnelID as an argument
+// StopAndDeleteTunnel takes in a tunnelID as an argument
 // and removes the tunnel from the endpoint. Returns
 // true if successful and false otherwise.
-func (e *Endpoint) RemoveTunnel(tunID string) bool {
+func (e *Endpoint) StopAndDeleteTunnel(tunID string) bool {
 	tun, ok := e.tunnels[tunID]
 	if !ok {
 		return false
@@ -62,7 +62,7 @@ func (e *Endpoint) RemoveTunnel(tunID string) bool {
 // connections with each tunnel.
 func (e *Endpoint) Stop() {
 	for id, _ := range e.tunnels {
-		e.RemoveTunnel(id)
+		e.StopAndDeleteTunnel(id)
 	}
 	close(e.endpointCtrlStream)
 }
@@ -72,7 +72,7 @@ func (e *Endpoint) Stop() {
 func NewEndpoint() *Endpoint {
 	e := new(Endpoint)
 	e.Id = ""
-	e.endpointCtrlStream = make(chan pb.EndpointControlMessage)
+	e.endpointCtrlStream = make(chan cs.EndpointControlMessage)
 	e.tunnels = make(map[string]*Tunnel)
 	return e
 }

@@ -11,6 +11,11 @@ const (
 )
 
 const (
+	TunnelDirectionForward = iota
+	TunnelDirectionReverse
+)
+
+const (
 	TunnelCtrlConnect = iota
 	TunnelCtrlAck
 	TunnelCtrlDisconnect

@@ -8,7 +8,7 @@ RUN apt update && apt install -y \
 	unzip && \
 	openssl
 
-COPY gTunnel/ gTunnel/.
+COPY grpc/ grpc/.
 COPY build/build_protoc.sh .
 
 RUN go get -u google.golang.org/grpc
@@ -20,9 +20,10 @@ ENV PATH=$PATH:$GOPATH/bin
 
 RUN ./build_protoc.sh
 
+COPY go.mod .
 COPY build/build_all.sh .
-COPY gServer/ gServer/.
-COPY gClient/ gClient/.
+COPY gserver/ gserver/.
+COPY gclient/ gclient/.
 COPY common/ common/.
 
 RUN go get -d -v ./...
@@ -30,8 +31,4 @@ RUN go install -v ./...
 
 RUN mkdir tls && openssl req -new -newkey rsa:4096 -x509 -sha256 -days 365 -nodes -out tls/cert -subj "/C=/ST=/L=/O=/CN=" -keyout tls/key
 
-CMD ["go", "run", "gServer/gServer.go"]
-
-
-	
-
+CMD ["go", "run", "gserver/gServer.go"]

@@ -4,9 +4,10 @@ option java_multiple_files = true;
 option java_package = "gtunnel";
 option java_outer_classname = "GTunnel";
 
-package gtunnel;
+package client;
 
-service GTunnel {
+
+service ClientService {
   // Gets a stream of control messages from the server
   rpc CreateEndpointControlStream(EndpointControlMessage) returns (stream EndpointControlMessage) {}
   rpc CreateTunnelControlStream(stream TunnelControlMessage) returns (stream TunnelControlMessage) {} 
@@ -28,10 +29,10 @@ message EndpointControlMessage {
   string endpointID = 2;
   string tunnelID = 3;
   int32 errorStatus = 4;
-  uint32 localIp = 5;
-  uint32 localPort = 6;
-  uint32 remoteIP = 7;
-  uint32 remotePort = 8;
+  uint32 listenIP = 5;
+  uint32 listenPort = 6;
+  uint32 destinationIP = 7;
+  uint32 destinationPort = 8;
 }
 
 message TunnelControlMessage {

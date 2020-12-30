@@ -1,8 +1,9 @@
 package common
 
 import (
-	pb "gTunnel/gTunnel"
 	"net"
+
+	cs "github.com/hotnops/gTunnel/grpc/client"
 )
 
 // A structure to handle the TCP connection
@@ -13,8 +14,8 @@ type Connection struct {
 	Kill        chan bool
 	Status      int32
 	Connected   chan bool
-	ingressData chan *pb.BytesMessage
-	egressData  chan *pb.BytesMessage
+	ingressData chan *cs.BytesMessage
+	egressData  chan *cs.BytesMessage
 	byteStream  ByteStream
 	bytesTx     uint64
 	bytesRx     uint64
@@ -57,7 +58,7 @@ func (c *Connection) Close() {
 // connected socket.
 func (c *Connection) handleIngressData() {
 
-	inputChan := make(chan *pb.BytesMessage)
+	inputChan := make(chan *cs.BytesMessage)
 
 	go func(s ByteStream) {
 		for {
@@ -108,7 +109,7 @@ func (c *Connection) handleIngressData() {
 // that a TCP connection has been closed locally.
 func (c *Connection) SendCloseMessage() {
 	c.TCPConn.Close()
-	closeMessage := new(pb.BytesMessage)
+	closeMessage := new(cs.BytesMessage)
 	closeMessage.Content = make([]byte, 0)
 	c.byteStream.Send(closeMessage)
 }
@@ -141,7 +142,7 @@ func (c *Connection) handleEgressData() {
 				inputChan = nil
 				break
 			}
-			message := new(pb.BytesMessage)
+			message := new(cs.BytesMessage)
 			message.Content = bytes
 
 			c.byteStream.Send(message)

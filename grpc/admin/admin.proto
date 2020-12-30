@@ -1,0 +1,117 @@
+syntax = "proto3";
+
+option java_multiple_files = true;
+option java_package = "gtunnel";
+option java_outer_classname = "GTunnel";
+
+package admin;
+
+service AdminService {
+
+  // Generates a configred gClient executable
+  rpc ClientCreate(ClientCreateRequest) returns (ClientCreateResponse) {}
+
+  // Lists all connected gClients
+  rpc ClientList(ClientListRequest) returns (stream Client) {}
+
+  // Disconnects a client from the server
+  rpc ClientDisconnect(ClientDisconnectRequest) returns (ClientDisconnectResponse) {}
+
+  // List all tunnels for an endppoint
+  rpc TunnelList(TunnelListRequest) returns (stream Tunnel) {}
+
+  // Add a tunnel
+  rpc TunnelAdd(TunnelAddRequest) returns (TunnelAddResponse) {}
+
+  // Delete a tunnel
+  rpc TunnelDelete(TunnelDeleteRequest) returns (TunnelDeleteResponse) {}
+
+  // List all connections for a tunnel
+  rpc ConnectionList(ConnectionListRequest) returns (stream Connection) {}
+
+  // Starts a SocksV5 server on a gClient
+  rpc SocksStart(SocksStartRequest) returns (SocksStartResponse) {}
+
+  // Stops a SocksV5 server on a gClient
+  rpc SocksStop(SocksStopRequest) returns (SocksStopResponse) {}
+
+}
+
+message ClientCreateRequest {
+  string clientID = 1;
+  uint32 ipAddress = 2;
+  uint32 port = 3;
+  string platform = 4;
+  string exeType = 5;
+}
+
+message ClientCreateResponse {
+    bytes clientBinary = 1;
+}
+
+message Client {
+    string clientID = 1;
+    uint32 status = 2;
+    uint32 ipAddress = 3;
+    uint32 port = 4;
+}
+
+message ClientListRequest {}
+
+message ClientDisconnectRequest {
+    string clientID = 1;
+}
+
+message ClientDisconnectResponse {}
+
+message TunnelListRequest {
+    string clientID = 1;
+}
+
+message Tunnel {
+    string ID = 1;
+    uint32 direction = 2;
+    uint32 listenIP = 3;
+    uint32 listenPort = 4;
+    uint32 destinationIP = 5;
+    uint32 destinationPort = 6;
+}
+
+message TunnelAddRequest {
+    string clientID = 1;
+    Tunnel tunnel = 2;
+}
+
+message TunnelAddResponse {}
+
+message TunnelDeleteRequest {
+    string clientID = 1;
+    string tunnelID = 2;
+}
+
+message TunnelDeleteResponse {}
+
+message Connection {
+    uint32 sourceIP = 1;
+    uint32 sourcePort = 2;
+    uint32 destinationIP = 3;
+    uint32 destinationPort = 4;
+}
+
+message ConnectionListRequest {
+    string clientID = 1;
+    string tunnelID = 2;
+}
+
+message SocksStartRequest {
+    string clientID = 1;
+    uint32 socksPort = 2;
+}
+
+message SocksStartResponse {}
+
+message SocksStopRequest {
+    string clientID = 1;
+}
+
+message SocksStopResponse {}

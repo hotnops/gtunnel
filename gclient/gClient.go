@@ -4,11 +4,13 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"gTunnel/common"
-	pb "gTunnel/gTunnel"
 	"io"
 	"log"
 	"os"
+
+	cs "github.com/hotnops/gTunnel/grpc/client"
+
+	"github.com/hotnops/gTunnel/common"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -23,22 +25,22 @@ var httpsProxyServer = ""
 
 type gClient struct {
 	endpoint    *common.Endpoint
-	ctrlStream  pb.GTunnel_CreateEndpointControlStreamClient
-	grpcClient  pb.GTunnelClient
+	ctrlStream  cs.ClientService_CreateEndpointControlStreamClient
+	grpcClient  cs.ClientServiceClient
 	killClient  chan bool
 	gCtx        context.Context
 	socksServer *common.SocksServer
 }
 
 type ClientStreamHandler struct {
-	client     pb.GTunnelClient
+	client     cs.ClientServiceClient
 	gCtx       context.Context
 	ctrlStream common.TunnelControlStream
 }
 
 // GetByteStream is responsible for returning a bi-directional gRPC
 // stream that will be used for relaying TCP data.
-func (c *ClientStreamHandler) GetByteStream(ctrlMessage *pb.TunnelControlMessage) common.ByteStream {
+func (c *ClientStreamHandler) GetByteStream(ctrlMessage *cs.TunnelControlMessage) common.ByteStream {
 	stream, err := c.client.CreateConnectionStream(c.gCtx)
 	if err != nil {
 		return nil
@@ -46,7 +48,7 @@ func (c *ClientStreamHandler) GetByteStream(ctrlMessage *pb.TunnelControlMessage
 
 	// Once byte stream is open, send an initial message
 	// with all the appropriate IDs
-	bytesMessage := new(pb.BytesMessage)
+	bytesMessage := new(cs.BytesMessage)
 	bytesMessage.EndpointID = ctrlMessage.EndpointID
 	bytesMessage.TunnelID = ctrlMessage.TunnelID
 	bytesMessage.ConnectionID = ctrlMessage.ConnectionID
@@ -63,7 +65,7 @@ func (c *ClientStreamHandler) GetByteStream(ctrlMessage *pb.TunnelControlMessage
 
 // Acknowledge is called to indicate that the TCP connection has been
 // established on the remote side of the tunnel.
-func (c *ClientStreamHandler) Acknowledge(ctrlMessage *pb.TunnelControlMessage) common.ByteStream {
+func (c *ClientStreamHandler) Acknowledge(ctrlMessage *cs.TunnelControlMessage) common.ByteStream {
 	return c.GetByteStream(ctrlMessage)
 }
 
@@ -75,9 +77,9 @@ func (c *ClientStreamHandler) CloseStream(connId int32) {
 // receiveClientControlMessages is responsible for reading
 // all control messages and dealing with them appropriately.
 func (c *gClient) receiveClientControlMessages() {
-	ctrlMessageChan := make(chan *pb.EndpointControlMessage)
+	ctrlMessageChan := make(chan *cs.EndpointControlMessage)
 
-	go func(c pb.GTunnel_CreateEndpointControlStreamClient) {
+	go func(c cs.ClientService_CreateEndpointControlStreamClient) {
 		for {
 			message, err := c.Recv()
 			if err == io.EOF {
@@ -94,14 +96,25 @@ func (c *gClient) receiveClientControlMessages() {
 		case message := <-ctrlMessageChan:
 			operation := message.Operation
 			if operation == common.EndpointCtrlAddTunnel {
+				var direction = 0
+				if message.ListenPort == 0 {
+					direction = common.TunnelDirectionForward
+				} else {
+					direction = common.TunnelDirectionReverse
+				}
+				newTunnel := common.NewTunnel(message.TunnelID,
+					uint32(direction),
+					common.Int32ToIP(message.ListenIP),
+					message.ListenPort,
+					common.Int32ToIP(message.DestinationIP),
+					message.DestinationPort)
 
-				newTunnel := common.NewTunnel(message.TunnelID, message.LocalIp, message.LocalPort, message.RemoteIP, message.RemotePort)
 				f := new(ClientStreamHandler)
 				f.client = c.grpcClient
 				f.gCtx = c.gCtx
 
-				if message.LocalPort != 0 {
-					newTunnel.AddListener(int32(message.LocalPort), c.endpoint.Id)
+				if direction == common.TunnelDirectionReverse {
+					newTunnel.AddListener(int32(message.ListenPort), c.endpoint.Id)
 				}
 
 				tStream, _ := c.grpcClient.CreateTunnelControlStream(c.gCtx)
@@ -113,7 +126,7 @@ func (c *gClient) receiveClientControlMessages() {
 
 				// Send a message through the new stream
 				// to let the server know the ID specifics
-				tMsg := new(pb.TunnelControlMessage)
+				tMsg := new(cs.TunnelControlMessage)
 				tMsg.EndpointID = message.EndpointID
 				tMsg.TunnelID = message.TunnelID
 				tStream.Send(tMsg)
@@ -128,7 +141,7 @@ func (c *gClient) receiveClientControlMessages() {
 					message.ErrorStatus = 1
 				}
 				log.Printf("Starting socks server")
-				c.socksServer = common.NewSocksServer(message.RemotePort)
+				c.socksServer = common.NewSocksServer(message.ListenPort)
 				if !c.socksServer.Start() {
 					message.ErrorStatus = 2
 				}
@@ -182,11 +195,11 @@ func main() {
 	}
 	defer conn.Close()
 
-	gClient.grpcClient = pb.NewGTunnelClient(conn)
+	gClient.grpcClient = cs.NewClientServiceClient(conn)
 	gClient.gCtx, cancel = context.WithCancel(context.Background())
 	defer cancel()
 
-	emptyMsg := new(pb.Empty)
+	emptyMsg := new(cs.Empty)
 	configMsg, err := gClient.grpcClient.GetConfigurationMessage(gClient.gCtx, emptyMsg)
 	if err != nil {
 		return
@@ -194,7 +207,7 @@ func main() {
 
 	gClient.endpoint.SetID(configMsg.EndpointID)
 
-	conMsg := new(pb.EndpointControlMessage)
+	conMsg := new(cs.EndpointControlMessage)
 	conMsg.EndpointID = gClient.endpoint.Id
 	gClient.ctrlStream, err = gClient.grpcClient.CreateEndpointControlStream(gClient.gCtx, conMsg)
 

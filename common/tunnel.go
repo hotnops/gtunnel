@@ -2,22 +2,24 @@ package common
 
 import (
 	"fmt"
-	pb "gTunnel/gTunnel"
 	"net"
+
+	cs "github.com/hotnops/gTunnel/grpc/client"
 )
 
 type ConnectionStreamHandler interface {
-	GetByteStream(ctrlMessage *pb.TunnelControlMessage) ByteStream
+	GetByteStream(ctrlMessage *cs.TunnelControlMessage) ByteStream
 	CloseStream(connId int32)
-	Acknowledge(ctrlMessage *pb.TunnelControlMessage) ByteStream
+	Acknowledge(ctrlMessage *cs.TunnelControlMessage) ByteStream
 }
 
 type Tunnel struct {
 	id                string
-	localPort         uint32
-	localIP           uint32
-	remotePort        uint32
-	remoteIP          uint32
+	direction         uint32
+	listenIP          net.IP
+	listenPort        uint32
+	destinationIP     net.IP
+	destinationPort   uint32
 	connections       map[int32]*Connection
 	listeners         []net.Listener
 	Kill              chan bool
@@ -26,17 +28,41 @@ type Tunnel struct {
 	ConnectionHandler ConnectionStreamHandler
 }
 
-func NewTunnel(id string, localPort uint32, localIP uint32, remoteIP uint32, remotePort uint32) *Tunnel {
+func NewTunnel(id string,
+	direction uint32,
+	listenIP net.IP,
+	listenPort uint32,
+	destinationIP net.IP,
+	destinationPort uint32) *Tunnel {
 	t := new(Tunnel)
 	t.id = id
-	t.localIP = localIP
-	t.localPort = localPort
-	t.remoteIP = remoteIP
-	t.remotePort = remotePort
+	t.direction = direction
+	t.listenIP = listenIP
+	t.listenPort = listenPort
+	t.destinationIP = destinationIP
+	t.destinationPort = destinationPort
 	t.connections = make(map[int32]*Connection)
 	t.Kill = make(chan bool)
 	t.listeners = make([]net.Listener, 0)
 	return t
+}
+
+func (t *Tunnel) GetDirection() uint32 {
+	return t.direction
+}
+
+func (t *Tunnel) GetListenIP() net.IP {
+	return t.listenIP
+}
+
+func (t *Tunnel) GetListenPort() uint32 {
+	return t.listenPort
+}
+func (t *Tunnel) GetDestinationIP() net.IP {
+	return t.destinationIP
+}
+func (t *Tunnel) GetDestinationPort() uint32 {
+	return t.destinationPort
 }
 
 // GetConnection will return a Connection object
@@ -92,7 +118,7 @@ func (t *Tunnel) Stop() {
 // handleIngressCtrlMessages is the loop function responsible
 // for receiving control messages from the gRPC stream.
 func (t *Tunnel) handleIngressCtrlMessages() {
-	ingressMessages := make(chan *pb.TunnelControlMessage)
+	ingressMessages := make(chan *cs.TunnelControlMessage)
 	go func(s TunnelControlStream) {
 		for {
 			ingressMessage, err := t.ctrlStream.Recv()
@@ -116,7 +142,11 @@ func (t *Tunnel) handleIngressCtrlMessages() {
 			}
 			// handle control message
 			if ctrlMessage.Operation == TunnelCtrlConnect {
-				conn, err := net.Dial("tcp", fmt.Sprintf("%s:%d", Int32ToIP(t.remoteIP), t.remotePort))
+
+				conn, err := net.Dial("tcp", fmt.Sprintf("%s:%d",
+					t.destinationIP,
+					t.destinationPort))
+
 				if err != nil {
 					ctrlMessage.ErrorStatus = 1
 				} else {
@@ -125,7 +155,6 @@ func (t *Tunnel) handleIngressCtrlMessages() {
 						gConn = NewConnection(conn)
 						t.connections[ctrlMessage.ConnectionID] = gConn
 					}
-
 					stream := t.ConnectionHandler.GetByteStream(ctrlMessage)
 					gConn.SetStream(stream)
 					gConn.Start()
@@ -162,6 +191,7 @@ func (t *Tunnel) handleIngressCtrlMessages() {
 // AddListener will start a tcp listener on a specific port and forward
 // all accepted TCP connections to the associated tunnel.
 func (t *Tunnel) AddListener(listenPort int32, endpointId string) bool {
+
 	ln, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", listenPort))
 	if err != nil {
 		return false
@@ -187,7 +217,7 @@ func (t *Tunnel) AddListener(listenPort int32, endpointId string) bool {
 			case conn := <-newConns:
 				gConn := NewConnection(conn)
 				t.AddConnection(gConn)
-				newMessage := new(pb.TunnelControlMessage)
+				newMessage := new(cs.TunnelControlMessage)
 				newMessage.EndpointID = endpointId
 				newMessage.Operation = TunnelCtrlConnect
 				newMessage.TunnelID = t.id

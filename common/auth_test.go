@@ -102,19 +102,19 @@ func TestConfigurationFile(t *testing.T) {
 	// gets saved to file. It will then delete the entry and ensure
 	// the entry no longer exists
 
-	TestConfigFile := ".gtunnel.test.conf"
+	TestConfigFile := "../testdata/.gtunnel.conf"
 	authStore, err := InitializeAuthStore(TestConfigFile)
 	if err != nil {
 		t.Fatalf("[!] Failed to load test configuration")
 	}
-	config1, err := authStore.GetClientConfig("%YwnP94_kMDLT?#mj?CLYl=C7zu4E7A7")
+	config1, err := authStore.GetClientConfig("QbcW7ChjefhyB$X[v@Q\u003cF@hWzMnZGuW(X8CBmcF")
 
 	if err != nil {
 		t.Errorf("Failed to lookup bearer token")
 	}
 
 	got := config1.ID
-	want := "test1"
+	want := "test"
 
 	if got != want {
 		t.Errorf("GetClientConfig: Got: %s Want: %s\n", got, want)
