@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
-	"log"
 	"os"
 
 	cs "github.com/hotnops/gTunnel/grpc/client"
@@ -140,7 +139,7 @@ func (c *gClient) receiveClientControlMessages() {
 				if c.socksServer != nil {
 					message.ErrorStatus = 1
 				}
-				log.Printf("Starting socks server")
+
 				c.socksServer = common.NewSocksServer(message.ListenPort)
 				if !c.socksServer.Start() {
 					message.ErrorStatus = 2

@@ -9,7 +9,7 @@ package admin;
 service AdminService {
 
   // Generates a configred gClient executable
-  rpc ClientCreate(ClientCreateRequest) returns (ClientCreateResponse) {}
+  rpc ClientCreate(ClientCreateRequest) returns (stream ByteStream) {}
 
   // Lists all connected gClients
   rpc ClientList(ClientListRequest) returns (stream Client) {}
@@ -45,8 +45,8 @@ message ClientCreateRequest {
   string exeType = 5;
 }
 
-message ClientCreateResponse {
-    bytes clientBinary = 1;
+message ByteStream {
+    bytes data = 1;
 }
 
 message Client {

@@ -3,8 +3,10 @@ package gserverlib
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"net"
+	"os"
 
 	"github.com/hotnops/gTunnel/common"
 	as "github.com/hotnops/gTunnel/grpc/admin"
@@ -40,31 +42,46 @@ func NewAdminServiceServer(gServer *GServer) *AdminServiceServer {
 	return adminServer
 }
 
-func (s *AdminServiceServer) ClientCreate(ctx context.Context, req *as.ClientCreateRequest) (
-	*as.ClientCreateResponse, error) {
+func (s *AdminServiceServer) ClientCreate(req *as.ClientCreateRequest,
+	stream as.AdminService_ClientCreateServer) error {
 	log.Printf("[*] ClientCreate called")
 
 	ip := common.Int32ToIP(req.IpAddress)
 
-	file, err := s.gServer.GenerateClient(
+	filePath, err := s.gServer.GenerateClient(
 		req.Platform,
 		ip.To4().String(),
 		uint16(req.Port),
 		req.ClientID)
 
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	resp := new(as.ClientCreateResponse)
-
-	_, err = file.Read(resp.ClientBinary)
-
+	f, err := os.Open(filePath)
 	if err != nil {
-		return nil, status.Error(codes.Internal, "failed to read file")
+		return fmt.Errorf("failed to open generated client")
+	}
+	defer f.Close()
+
+	for {
+		data := make([]byte, 4096)
+		bytesRead, err := f.Read(data)
+		if err == io.EOF {
+			break
+		} else if err != nil {
+			return fmt.Errorf("error reading file")
+		} else {
+			if bytesRead != 4096 {
+				data = data[0:bytesRead]
+			}
+			bs := new(as.ByteStream)
+			bs.Data = data
+			stream.Send(bs)
+		}
 	}
 
-	return resp, nil
+	return nil
 }
 
 func (s *AdminServiceServer) ClientList(req *as.ClientListRequest,

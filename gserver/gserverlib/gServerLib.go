@@ -190,7 +190,7 @@ func (s *GServer) GenerateClient(
 	platform string,
 	serverAddress string,
 	serverPort uint16,
-	clientID string) (*os.File, error) {
+	clientID string) (string, error) {
 
 	const (
 		PLATFORM = iota
@@ -236,9 +236,9 @@ func (s *GServer) GenerateClient(
 	if err != nil {
 		log.Printf("[!] Failed to generate client: %s", err)
 		s.authStore.DeleteClientConfig(token)
-		return nil, err
+		return "", err
 	}
-	return os.Open(outputPath)
+	return outputPath, nil
 }
 
 // Delete tunnel will kill all TCP connections under the tunnel
