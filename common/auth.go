@@ -25,10 +25,12 @@ const (
 	MinTokenSize = 32
 )
 
-// TokenAuth is a structure repesenting a bearer token for
-// client auth
-type TokenAuth struct {
-	token string
+// The AuthStore class is responsible for managing bearer token
+// to client configuration relationships as well as persisting
+// the datastore to disk.
+type AuthStore struct {
+	tokenToClient  map[string]*ClientConfig
+	configFilename string
 }
 
 // ClientConfig represents a structure containing all client
@@ -38,15 +40,36 @@ type ClientConfig struct {
 	IDHash string
 }
 
-// The AuthStore class is responsible for managing bearer token
-// to client configuration relationships as well as persisting
-// the datastore to disk.
-type AuthStore struct {
-	tokenToClient  map[string]*ClientConfig
-	configFilename string
+// TokenAuth is a structure repesenting a bearer token for
+// client auth
+type TokenAuth struct {
+	token string
 }
 
 var authStore *AuthStore
+
+// GetBearerTokenFromCtx will return the bearer token string
+// from the auth header within the ctx structure.
+func GetBearerTokenFromCtx(ctx context.Context) (string, error) {
+	md, ok := metadata.FromIncomingContext(ctx)
+
+	if !ok {
+		return "", status.Error(codes.InvalidArgument, "Failed to retrieve metadata")
+	}
+
+	authHeader, ok := md["authorization"]
+	if !ok {
+		return "", status.Errorf(codes.Unauthenticated, "Authorization token is not provided")
+	}
+
+	bearerToken := authHeader[0]
+	if !strings.HasPrefix(bearerToken, bearerString) {
+		return "", status.Errorf(codes.InvalidArgument, "Invalid authorization header")
+	}
+
+	token := strings.Split(bearerToken, bearerString)[1]
+	return token, nil
+}
 
 // InitializeAuthStore will load in a configuration from the provided
 // filename and return an AuthStore pointer. If the filename is empty,
@@ -96,69 +119,63 @@ func InitializeAuthStore(configFile string) (*AuthStore, error) {
 	return a, nil
 }
 
-// generateToken will generate a random string to be
-// used as a client authorization.
-func (a *AuthStore) generateToken() (string, error) {
-	// Minimum token size is 24, max is 36
-	reader := rand.Reader
-	max := big.NewInt(int64(MaxTokenSize - MinTokenSize))
-	min := big.NewInt(int64(MinTokenSize))
-
-	tokenSize, err := rand.Int(reader, max)
-
-	if err != nil {
-		log.Print("[!] Failed to generate a password size\n")
+// NewToken will generate a new TokenAuth structure
+// with the provided string set to the token member.
+func NewToken(token string) *TokenAuth {
+	t := new(TokenAuth)
+	if token == "" {
+		return nil
 	}
-
-	tokenSize.Add(tokenSize, min)
-
-	var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()-=_+[]{};,.<>/?")
-
-	b := make([]rune, tokenSize.Int64())
-	for i := range b {
-		newRand, _ := rand.Int(reader, big.NewInt(int64(len(letters))))
-		b[i] = letters[newRand.Int64()]
-	}
-
-	return string(b), nil
+	t.token = token
+	return t
 }
 
-func (a *AuthStore) writeToFile() error {
-	// Write dictionary to file
-	jsonString, err := json.Marshal(a.tokenToClient)
+// StreamAuthInterceptor will check for proper authorization for all
+// stream based gRPC calls.
+func StreamAuthInterceptor(srv interface{},
+	ss grpc.ServerStream,
+	info *grpc.StreamServerInfo,
+	handler grpc.StreamHandler) error {
+
+	ctx := ss.Context()
+
+	token, err := GetBearerTokenFromCtx(ctx)
+
 	if err != nil {
-		log.Printf("[!] Failed to convert auth dictionary to JSON")
 		return err
 	}
 
-	err = ioutil.WriteFile(a.configFilename, jsonString, 600)
+	err = authStore.validateToken(token)
+
 	if err != nil {
-		log.Printf(
-			"[!] Failed to write auth dictionary to configuration file: %s\n", err)
-		return err
+		log.Printf("[!] Invalid bearer token\n")
+		return status.Errorf(codes.Unauthenticated, err.Error())
 	}
-	return nil
+
+	return handler(srv, ss)
 }
 
-// GenerateNewClientConfig will generate a new random token
-// and insert it into the auth datastore. It returns the
-// generated token on success and an error if one exists.
-func (a *AuthStore) GenerateNewClientConfig(id string) (string, error) {
-	token, err := a.generateToken()
+// UnaryAuthInterceptor is called for all unary gRPC functions
+// to validate that the caller is authorized.
+func UnaryAuthInterceptor(ctx context.Context,
+	req interface{},
+	info *grpc.UnaryServerInfo,
+	handler grpc.UnaryHandler) (interface{}, error) {
+
+	token, err := GetBearerTokenFromCtx(ctx)
+
 	if err != nil {
-		log.Printf("[!] Failed to generate new client config: %s", err)
-		return "", err
-	}
-	clientConfig := new(ClientConfig)
-	clientConfig.ID = id
-	clientConfig.IDHash = ""
-	err = a.AddClientConfig(token, clientConfig)
-	if err != nil {
-		log.Printf("[!] Failed to add client: %s", err)
-		return "", err
+		return nil, err
 	}
 
-	return token, nil
+	err = authStore.validateToken(token)
+
+	if err != nil {
+		log.Printf("[!] Invalid bearer token\n")
+		return nil, status.Errorf(codes.Unauthenticated, err.Error())
+	}
+
+	return handler(ctx, req)
 }
 
 // AddClientConfig will add a client configuration structure
@@ -201,6 +218,54 @@ func (a *AuthStore) DeleteClientConfig(token string) error {
 	return errors.New("Client doesn't exist")
 }
 
+// GenerateNewClientConfig will generate a new random token
+// and insert it into the auth datastore. It returns the
+// generated token on success and an error if one exists.
+func (a *AuthStore) GenerateNewClientConfig(id string) (string, error) {
+	token, err := a.generateToken()
+	if err != nil {
+		log.Printf("[!] Failed to generate new client config: %s", err)
+		return "", err
+	}
+	clientConfig := new(ClientConfig)
+	clientConfig.ID = id
+	clientConfig.IDHash = ""
+	err = a.AddClientConfig(token, clientConfig)
+	if err != nil {
+		log.Printf("[!] Failed to add client: %s", err)
+		return "", err
+	}
+
+	return token, nil
+}
+
+// generateToken will generate a random string to be
+// used as a client authorization.
+func (a *AuthStore) generateToken() (string, error) {
+	// Minimum token size is 24, max is 36
+	reader := rand.Reader
+	max := big.NewInt(int64(MaxTokenSize - MinTokenSize))
+	min := big.NewInt(int64(MinTokenSize))
+
+	tokenSize, err := rand.Int(reader, max)
+
+	if err != nil {
+		log.Print("[!] Failed to generate a password size\n")
+	}
+
+	tokenSize.Add(tokenSize, min)
+
+	var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()-=_+[]{};,.<>/?")
+
+	b := make([]rune, tokenSize.Int64())
+	for i := range b {
+		newRand, _ := rand.Int(reader, big.NewInt(int64(len(letters))))
+		b[i] = letters[newRand.Int64()]
+	}
+
+	return string(b), nil
+}
+
 // GetClientConfig will return a pointer to a Clientconfig structure
 // or an error if the lookup fails.
 func (a *AuthStore) GetClientConfig(token string) (*ClientConfig, error) {
@@ -208,31 +273,6 @@ func (a *AuthStore) GetClientConfig(token string) (*ClientConfig, error) {
 		return client, nil
 	}
 	return nil, errors.New("Client does not exist")
-}
-
-// NewToken will generate a new TokenAuth structure
-// with the provided string set to the token member.
-func NewToken(token string) *TokenAuth {
-	t := new(TokenAuth)
-	if token == "" {
-		return nil
-	}
-	t.token = token
-	return t
-}
-
-// GetRequestMetadata will return the bearer token as an
-// authorization header
-func (t TokenAuth) GetRequestMetadata(ctx context.Context, in ...string) (
-	map[string]string, error) {
-	return map[string]string{
-		"authorization": bearerString + t.token,
-	}, nil
-}
-
-// RequireTransportSecurity always returns true
-func (TokenAuth) RequireTransportSecurity() bool {
-	return true
 }
 
 func (a *AuthStore) validateToken(token string) error {
@@ -243,73 +283,33 @@ func (a *AuthStore) validateToken(token string) error {
 	return nil
 }
 
-// GetBearerTokenFromCtx will return the bearer token string
-// from the auth header within the ctx structure.
-func GetBearerTokenFromCtx(ctx context.Context) (string, error) {
-	md, ok := metadata.FromIncomingContext(ctx)
-
-	if !ok {
-		return "", status.Error(codes.InvalidArgument, "Failed to retrieve metadata")
-	}
-
-	authHeader, ok := md["authorization"]
-	if !ok {
-		return "", status.Errorf(codes.Unauthenticated, "Authorization token is not provided")
-	}
-
-	bearerToken := authHeader[0]
-	if !strings.HasPrefix(bearerToken, bearerString) {
-		return "", status.Errorf(codes.InvalidArgument, "Invalid authorization header")
-	}
-
-	token := strings.Split(bearerToken, bearerString)[1]
-	return token, nil
-}
-
-// UnaryAuthInterceptor is called for all unary gRPC functions
-// to validate that the caller is authorized.
-func UnaryAuthInterceptor(ctx context.Context,
-	req interface{},
-	info *grpc.UnaryServerInfo,
-	handler grpc.UnaryHandler) (interface{}, error) {
-
-	token, err := GetBearerTokenFromCtx(ctx)
-
+func (a *AuthStore) writeToFile() error {
+	// Write dictionary to file
+	jsonString, err := json.Marshal(a.tokenToClient)
 	if err != nil {
-		return nil, err
-	}
-
-	err = authStore.validateToken(token)
-
-	if err != nil {
-		log.Printf("[!] Invalid bearer token\n")
-		return nil, status.Errorf(codes.Unauthenticated, err.Error())
-	}
-
-	return handler(ctx, req)
-}
-
-// StreamAuthInterceptor will check for proper authorization for all
-// stream based gRPC calls.
-func StreamAuthInterceptor(srv interface{},
-	ss grpc.ServerStream,
-	info *grpc.StreamServerInfo,
-	handler grpc.StreamHandler) error {
-
-	ctx := ss.Context()
-
-	token, err := GetBearerTokenFromCtx(ctx)
-
-	if err != nil {
+		log.Printf("[!] Failed to convert auth dictionary to JSON")
 		return err
 	}
 
-	err = authStore.validateToken(token)
-
+	err = ioutil.WriteFile(a.configFilename, jsonString, 600)
 	if err != nil {
-		log.Printf("[!] Invalid bearer token\n")
-		return status.Errorf(codes.Unauthenticated, err.Error())
+		log.Printf(
+			"[!] Failed to write auth dictionary to configuration file: %s\n", err)
+		return err
 	}
+	return nil
+}
 
-	return handler(srv, ss)
+// GetRequestMetadata will return the bearer token as an
+// authorization header
+func (t *TokenAuth) GetRequestMetadata(ctx context.Context, in ...string) (
+	map[string]string, error) {
+	return map[string]string{
+		"authorization": bearerString + t.token,
+	}, nil
+}
+
+// RequireTransportSecurity always returns true
+func (t *TokenAuth) RequireTransportSecurity() bool {
+	return true
 }

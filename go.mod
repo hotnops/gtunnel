@@ -9,5 +9,6 @@ require (
 	github.com/fatih/color v1.10.0 // indirect
 	github.com/flynn-archive/go-shlex v0.0.0-20150515145356-3f9db97f8568 // indirect
 	github.com/golang/protobuf v1.4.3
+	github.com/olekukonko/tablewriter v0.0.4
 	google.golang.org/grpc v1.34.0
 )

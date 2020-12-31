@@ -16,32 +16,22 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// AdminServiceServer is a structure that implements all of the
+// grpc functions for the AdminServiceServer
 type AdminServiceServer struct {
 	as.UnimplementedAdminServiceServer
 	gServer *GServer
 }
 
-func (s *AdminServiceServer) Start(port int) {
-	log.Printf("[*] Starting admin grpc server on port: %d\n", port)
-	grpcServer := grpc.NewServer()
-
-	lis, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", port))
-	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
-	}
-
-	as.RegisterAdminServiceServer(grpcServer, s)
-	reflection.Register(grpcServer)
-
-	grpcServer.Serve(lis)
-}
-
+// NewAdminServiceServer is a constructor that returns an AdminServiceServer
+// grpc server.
 func NewAdminServiceServer(gServer *GServer) *AdminServiceServer {
 	adminServer := new(AdminServiceServer)
 	adminServer.gServer = gServer
 	return adminServer
 }
 
+// ClientCreate will create a gClient binary and send it back in a binary stream.
 func (s *AdminServiceServer) ClientCreate(req *as.ClientCreateRequest,
 	stream as.AdminService_ClientCreateServer) error {
 	log.Printf("[*] ClientCreate called")
@@ -52,7 +42,7 @@ func (s *AdminServiceServer) ClientCreate(req *as.ClientCreateRequest,
 		req.Platform,
 		ip.To4().String(),
 		uint16(req.Port),
-		req.ClientID)
+		req.ClientId)
 
 	if err != nil {
 		return err
@@ -84,6 +74,22 @@ func (s *AdminServiceServer) ClientCreate(req *as.ClientCreateRequest,
 	return nil
 }
 
+// ClientDisconnect will disconnect a gClient from gServer.
+func (s *AdminServiceServer) ClientDisconnect(ctx context.Context, req *as.ClientDisconnectRequest) (
+	*as.ClientDisconnectResponse, error) {
+	log.Printf("[*] ClientDisconnect called")
+
+	id := req.ClientId
+
+	s.gServer.DisconnectEndpoint(id)
+
+	resp := new(as.ClientDisconnectResponse)
+
+	return resp, nil
+}
+
+// ClientList will list all configured clients for the gServer and their
+// connection status as well as the configured ip, port, and bearer token
 func (s *AdminServiceServer) ClientList(req *as.ClientListRequest,
 	stream as.AdminService_ClientListServer) error {
 	log.Printf("[*] ClientList called")
@@ -96,102 +102,24 @@ func (s *AdminServiceServer) ClientList(req *as.ClientListRequest,
 
 	for _, endpoint := range endpoints {
 		resp := new(as.Client)
-		resp.ClientID = endpoint.Id
+		resp.ClientId = endpoint.Id
 		resp.Status = 1
-		resp.IpAddress = 20
-		resp.Port = 20
+		resp.IpAddress = 0
+		resp.Port = 0
 		stream.Send(resp)
 	}
 
 	return nil
 }
 
-func (s *AdminServiceServer) ClientDisconnect(ctx context.Context, req *as.ClientDisconnectRequest) (
-	*as.ClientDisconnectResponse, error) {
-	log.Printf("[*] ClientDisconnect called")
-
-	id := req.ClientID
-
-	s.gServer.DisconnectEndpoint(id)
-
-	resp := new(as.ClientDisconnectResponse)
-
-	return resp, nil
-}
-
-func (s *AdminServiceServer) TunnelAdd(ctx context.Context, req *as.TunnelAddRequest) (
-	*as.TunnelAddResponse, error) {
-	log.Printf("[*] TunnelAdd called")
-
-	err := s.gServer.AddTunnel(
-		req.ClientID,
-		req.Tunnel.ID,
-		req.Tunnel.Direction,
-		common.Int32ToIP(req.Tunnel.ListenIP),
-		req.Tunnel.ListenPort,
-		common.Int32ToIP(req.Tunnel.DestinationIP),
-		req.Tunnel.DestinationPort)
-
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, err.Error())
-	}
-
-	return new(as.TunnelAddResponse), nil
-}
-
-func (s *AdminServiceServer) TunnelList(req *as.TunnelListRequest,
-	stream as.AdminService_TunnelListServer) error {
-	log.Printf("[*] TunnelList called")
-
-	clientID := req.ClientID
-
-	endpoint, ok := s.gServer.GetEndpoint(clientID)
-	if !ok {
-		return status.Error(codes.InvalidArgument,
-			fmt.Sprintf("clientID %s does not exist", clientID))
-	}
-
-	tunnels := endpoint.GetTunnels()
-
-	if len(tunnels) == 0 {
-		return status.Error(codes.OutOfRange,
-			fmt.Sprintf("%s does not have any tunnels", clientID))
-	}
-
-	for id, tunnel := range tunnels {
-		newTun := new(as.Tunnel)
-		newTun.ID = id
-		newTun.Direction = tunnel.GetDirection()
-		newTun.ListenIP = common.IpToInt32(tunnel.GetListenIP())
-		newTun.ListenPort = tunnel.GetListenPort()
-		newTun.DestinationIP = common.IpToInt32(tunnel.GetDestinationIP())
-		newTun.DestinationPort = tunnel.GetDestinationPort()
-
-		stream.Send(newTun)
-	}
-
-	return nil
-}
-
-func (s *AdminServiceServer) TunnelDelete(ctx context.Context, req *as.TunnelDeleteRequest) (
-	*as.TunnelDeleteResponse, error) {
-	log.Printf("[*] TunnelDelete called")
-
-	err := s.gServer.DeleteTunnel(req.ClientID, req.TunnelID)
-
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, err.Error())
-	}
-
-	return new(as.TunnelDeleteResponse), nil
-}
-
+// ConnectionList will list all the connections associated with the provided
+// tunnel ID.
 func (s *AdminServiceServer) ConnectionList(req *as.ConnectionListRequest,
 	stream as.AdminService_ConnectionListServer) error {
 	log.Printf("[*] ConnectionList called")
 
-	clientID := req.ClientID
-	tunnelID := req.TunnelID
+	clientID := req.ClientId
+	tunnelID := req.TunnelId
 
 	endpoint, ok := s.gServer.GetEndpoint(clientID)
 
@@ -218,20 +146,22 @@ func (s *AdminServiceServer) ConnectionList(req *as.ConnectionListRequest,
 		newCon := new(as.Connection)
 		sourceIP := connection.TCPConn.LocalAddr().(*net.TCPAddr).IP
 		destIP := connection.TCPConn.RemoteAddr().(*net.TCPAddr).IP
-		newCon.SourceIP = common.IpToInt32(sourceIP)
+		newCon.SourceIp = common.IpToInt32(sourceIP)
 		newCon.SourcePort = uint32(connection.TCPConn.LocalAddr().(*net.TCPAddr).Port)
-		newCon.DestinationIP = common.IpToInt32(destIP)
+		newCon.DestinationIp = common.IpToInt32(destIP)
 		newCon.DestinationPort = uint32(connection.TCPConn.RemoteAddr().(*net.TCPAddr).Port)
 		stream.Send(newCon)
 	}
 	return nil
 }
 
-func (s *AdminServiceServer) SocksStart(ctx context.Context, req *as.SocksStartRequest) (
+// SocksStart will start a Socksv5 proxy server on the provided client ID
+func (s *AdminServiceServer) SocksStart(ctx context.Context,
+	req *as.SocksStartRequest) (
 	*as.SocksStartResponse, error) {
 	log.Printf("[*] SocksStart called")
 
-	clientID := req.ClientID
+	clientID := req.ClientId
 	socksPort := req.SocksPort
 
 	err := s.gServer.StartProxy(clientID, socksPort)
@@ -243,11 +173,13 @@ func (s *AdminServiceServer) SocksStart(ctx context.Context, req *as.SocksStartR
 	return new(as.SocksStartResponse), nil
 }
 
-func (s *AdminServiceServer) SocksStop(ctx context.Context, req *as.SocksStopRequest) (
+// SocksStop will stop a SocksV5 proxy server running on the provided client ID.
+func (s *AdminServiceServer) SocksStop(ctx context.Context,
+	req *as.SocksStopRequest) (
 	*as.SocksStopResponse, error) {
 	log.Printf("[*] SocksStart called")
 
-	clientID := req.ClientID
+	clientID := req.ClientId
 
 	err := s.gServer.StopProxy(clientID)
 
@@ -256,4 +188,90 @@ func (s *AdminServiceServer) SocksStop(ctx context.Context, req *as.SocksStopReq
 	}
 
 	return new(as.SocksStopResponse), nil
+}
+
+// Start will start the grpc server
+func (s *AdminServiceServer) Start(port int) {
+	log.Printf("[*] Starting admin grpc server on port: %d\n", port)
+	grpcServer := grpc.NewServer()
+
+	lis, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", port))
+	if err != nil {
+		log.Fatalf("failed to listen: %v", err)
+	}
+
+	as.RegisterAdminServiceServer(grpcServer, s)
+	reflection.Register(grpcServer)
+
+	grpcServer.Serve(lis)
+}
+
+// TunnelAdd adds a tunnel to an endpoint specified in the request.
+func (s *AdminServiceServer) TunnelAdd(ctx context.Context, req *as.TunnelAddRequest) (
+	*as.TunnelAddResponse, error) {
+	log.Printf("[*] TunnelAdd called")
+
+	err := s.gServer.AddTunnel(
+		req.ClientId,
+		req.Tunnel.Id,
+		req.Tunnel.Direction,
+		common.Int32ToIP(req.Tunnel.ListenIp),
+		req.Tunnel.ListenPort,
+		common.Int32ToIP(req.Tunnel.DestinationIp),
+		req.Tunnel.DestinationPort)
+
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, err.Error())
+	}
+
+	return new(as.TunnelAddResponse), nil
+}
+
+// TunnelDelete deletes a tunnel with the provided tunnel ID
+func (s *AdminServiceServer) TunnelDelete(ctx context.Context, req *as.TunnelDeleteRequest) (
+	*as.TunnelDeleteResponse, error) {
+	log.Printf("[*] TunnelDelete called")
+
+	err := s.gServer.DeleteTunnel(req.ClientId, req.TunnelId)
+
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, err.Error())
+	}
+
+	return new(as.TunnelDeleteResponse), nil
+}
+
+// TunnelList lists all tunnels associated with the provided client ID.
+func (s *AdminServiceServer) TunnelList(req *as.TunnelListRequest,
+	stream as.AdminService_TunnelListServer) error {
+	log.Printf("[*] TunnelList called")
+
+	clientID := req.ClientId
+
+	endpoint, ok := s.gServer.GetEndpoint(clientID)
+	if !ok {
+		return status.Error(codes.InvalidArgument,
+			fmt.Sprintf("Client_ID %s does not exist", clientID))
+	}
+
+	tunnels := endpoint.GetTunnels()
+
+	if len(tunnels) == 0 {
+		return status.Error(codes.OutOfRange,
+			fmt.Sprintf("%s does not have any tunnels", clientID))
+	}
+
+	for id, tunnel := range tunnels {
+		newTun := new(as.Tunnel)
+		newTun.Id = id
+		newTun.Direction = tunnel.GetDirection()
+		newTun.ListenIp = common.IpToInt32(tunnel.GetListenIP())
+		newTun.ListenPort = tunnel.GetListenPort()
+		newTun.DestinationIp = common.IpToInt32(tunnel.GetDestinationIP())
+		newTun.DestinationPort = tunnel.GetDestinationPort()
+
+		stream.Send(newTun)
+	}
+
+	return nil
 }

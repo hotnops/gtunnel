@@ -24,6 +24,107 @@ func NewClientServiceServer(gserver *GServer) *ClientServiceServer {
 	return c
 }
 
+// GetConfigurationMessage returns the client ID and kill date to a
+// gClient based on the bearer token provided.
+func (s *ClientServiceServer) GetConfigurationMessage(ctx context.Context, empty *cs.GetConfigurationMessageRequest) (
+	*cs.GetConfigurationMessageResponse, error) {
+
+	token, err := common.GetBearerTokenFromCtx(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	clientConfig, err := s.gServer.authStore.GetClientConfig(token)
+
+	configMsg := new(cs.GetConfigurationMessageResponse)
+	configMsg.EndpointId = clientConfig.ID
+	configMsg.KillDate = 0
+
+	return configMsg, nil
+
+}
+
+// CreateEndpointControl stream is a gRPC function that the client
+// calls to establish a one way stream that the server uses to issue
+// control messages to the remote endpoint.
+func (s *ClientServiceServer) CreateEndpointControlStream(
+	ctrlMessage *cs.EndpointControlMessage,
+	stream cs.ClientService_CreateEndpointControlStreamServer) error {
+	log.Printf("Endpoint connected: id: %s", ctrlMessage.EndpointId)
+
+	ctx, cancel := context.WithCancel(stream.Context())
+	defer cancel()
+
+	// This is for accepting keyboard input, each client needs their own
+	// channel
+	inputChannel := make(chan *cs.EndpointControlMessage)
+	s.gServer.endpointInputs[ctrlMessage.EndpointId] = inputChannel
+
+	s.gServer.endpoints[ctrlMessage.EndpointId] = common.NewEndpoint()
+	s.gServer.endpoints[ctrlMessage.EndpointId].SetID(ctrlMessage.EndpointId)
+
+	for {
+		select {
+
+		case controlMessage, ok := <-inputChannel:
+			if !ok {
+				log.Printf(
+					"Failed to read from EndpointCtrlStream channel. Exiting")
+				break
+			}
+			controlMessage.EndpointId = ctrlMessage.EndpointId
+			stream.Send(controlMessage)
+		case <-ctx.Done():
+			log.Printf("Endpoint disconnected: %s", ctrlMessage.EndpointId)
+			endpoint, ok := s.gServer.endpoints[ctrlMessage.EndpointId]
+			if !ok {
+				log.Printf("Endpoint already removed: %s",
+					ctrlMessage.EndpointId)
+			}
+			endpoint.Stop()
+			delete(s.gServer.endpoints, ctrlMessage.EndpointId)
+			return nil
+		}
+	}
+}
+
+//CreateTunnelControlStream is a gRPC function that the client will call to
+// establish a bi-directional stream to relay control messages about new
+// and disconnected TCP connections.
+func (s *ClientServiceServer) CreateTunnelControlStream(
+	stream cs.ClientService_CreateTunnelControlStreamServer) error {
+
+	tunMessage, err := stream.Recv()
+	if err != nil {
+		log.Printf("Failed to receive initial tun stream message: %v", err)
+	}
+
+	endpoint := s.gServer.endpoints[tunMessage.EndpointId]
+	tun, _ := endpoint.GetTunnel(tunMessage.TunnelId)
+
+	tun.SetControlStream(stream)
+	tun.Start()
+	<-tun.Kill
+	return nil
+}
+
+// CreateConnectionStream is a gRPC function that the client twill call to
+// create a bi-directional data stream to carry data that gets delivered
+// over the TCP connection.
+func (s *ClientServiceServer) CreateConnectionStream(
+	stream cs.ClientService_CreateConnectionStreamServer) error {
+	bytesMessage, _ := stream.Recv()
+	endpoint := s.gServer.endpoints[bytesMessage.EndpointId]
+	tunnel, _ := endpoint.GetTunnel(bytesMessage.TunnelId)
+	conn := tunnel.GetConnection(bytesMessage.ConnectionId)
+	conn.SetStream(stream)
+	close(conn.Connected)
+	<-conn.Kill
+	tunnel.RemoveConnection(conn.Id)
+	return nil
+}
+
+// Start starts the grpc client service.
 func (s *ClientServiceServer) Start(
 	port int,
 	tls bool,
@@ -61,102 +162,4 @@ func (s *ClientServiceServer) Start(
 
 	grpcServer.Serve(lis)
 
-}
-
-// CreateEndpointControl stream is a gRPC function that the client
-// calls to establish a one way stream that the server uses to issue
-// control messages to the remote endpoint.
-func (s *ClientServiceServer) CreateEndpointControlStream(
-	ctrlMessage *cs.EndpointControlMessage,
-	stream cs.ClientService_CreateEndpointControlStreamServer) error {
-	log.Printf("Endpoint connected: id: %s", ctrlMessage.EndpointID)
-
-	ctx, cancel := context.WithCancel(stream.Context())
-	defer cancel()
-
-	// This is for accepting keyboard input, each client needs their own
-	// channel
-	inputChannel := make(chan *cs.EndpointControlMessage)
-	s.gServer.endpointInputs[ctrlMessage.EndpointID] = inputChannel
-
-	s.gServer.endpoints[ctrlMessage.EndpointID] = common.NewEndpoint()
-	s.gServer.endpoints[ctrlMessage.EndpointID].SetID(ctrlMessage.EndpointID)
-
-	for {
-		select {
-
-		case controlMessage, ok := <-inputChannel:
-			if !ok {
-				log.Printf(
-					"Failed to read from EndpointCtrlStream channel. Exiting")
-				break
-			}
-			controlMessage.EndpointID = ctrlMessage.EndpointID
-			stream.Send(controlMessage)
-		case <-ctx.Done():
-			log.Printf("Endpoint disconnected: %s", ctrlMessage.EndpointID)
-			endpoint, ok := s.gServer.endpoints[ctrlMessage.EndpointID]
-			if !ok {
-				log.Printf("Endpoint already removed: %s",
-					ctrlMessage.EndpointID)
-			}
-			endpoint.Stop()
-			delete(s.gServer.endpoints, ctrlMessage.EndpointID)
-			return nil
-		}
-	}
-}
-
-func (s *ClientServiceServer) GetConfigurationMessage(ctx context.Context, empty *cs.Empty) (
-	*cs.ConfigurationMessage, error) {
-
-	token, err := common.GetBearerTokenFromCtx(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	clientConfig, err := s.gServer.authStore.GetClientConfig(token)
-
-	configMsg := new(cs.ConfigurationMessage)
-	configMsg.EndpointID = clientConfig.ID
-	configMsg.KillDate = 0
-
-	return configMsg, nil
-
-}
-
-//CreateTunnelControlStream is a gRPC function that the client will call to
-// establish a bi-directional stream to relay control messages about new
-// and disconnected TCP connections.
-func (s *ClientServiceServer) CreateTunnelControlStream(
-	stream cs.ClientService_CreateTunnelControlStreamServer) error {
-
-	tunMessage, err := stream.Recv()
-	if err != nil {
-		log.Printf("Failed to receive initial tun stream message: %v", err)
-	}
-
-	endpoint := s.gServer.endpoints[tunMessage.EndpointID]
-	tun, _ := endpoint.GetTunnel(tunMessage.TunnelID)
-
-	tun.SetControlStream(stream)
-	tun.Start()
-	<-tun.Kill
-	return nil
-}
-
-// CreateconnectionStream is a gRPC function that the client twill call to
-// create a bi-directional data stream to carry data that gets delivered
-// over the TCP connection.
-func (s *ClientServiceServer) CreateConnectionStream(
-	stream cs.ClientService_CreateConnectionStreamServer) error {
-	bytesMessage, _ := stream.Recv()
-	endpoint := s.gServer.endpoints[bytesMessage.EndpointID]
-	tunnel, _ := endpoint.GetTunnel(bytesMessage.TunnelID)
-	conn := tunnel.GetConnection(bytesMessage.ConnectionID)
-	conn.SetStream(stream)
-	close(conn.Connected)
-	<-conn.Kill
-	tunnel.RemoveConnection(conn.Id)
-	return nil
 }

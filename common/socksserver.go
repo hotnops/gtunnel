@@ -8,12 +8,17 @@ import (
 	"github.com/fangdingjun/socks-go"
 )
 
+// SocksServer is a structure that handles starting and stopping
+// a socks v5 proxy on the gClient.
 type SocksServer struct {
 	listener    net.Listener
 	connections []socks.Conn
 	servePort   uint32
 }
 
+// NewSocksServer is a constructor for the SocksServer struct.
+// It takes in a port as an argument, wich will be the port on
+// which the socks server listens.
 func NewSocksServer(port uint32) *SocksServer {
 	s := new(SocksServer)
 	s.servePort = port
@@ -21,6 +26,7 @@ func NewSocksServer(port uint32) *SocksServer {
 	return s
 }
 
+// Start will start the socks server. Simple enough.
 func (s *SocksServer) Start() bool {
 	var err error
 	s.listener, err = net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", s.servePort))
@@ -44,6 +50,7 @@ func (s *SocksServer) Start() bool {
 	return true
 }
 
+// Stop - You'll never guess what this does.
 func (s *SocksServer) Stop() {
 	s.listener.Close()
 	for _, conn := range s.connections {

@@ -6,25 +6,19 @@ option java_outer_classname = "GTunnel";
 
 package admin;
 
+/* The AdminService is used for performing administrative actions
+ * with gServer, such as adding tunnels, configuring clients, and
+ * listing out the state of gServer. */
 service AdminService {
 
   // Generates a configred gClient executable
   rpc ClientCreate(ClientCreateRequest) returns (stream ByteStream) {}
 
-  // Lists all connected gClients
-  rpc ClientList(ClientListRequest) returns (stream Client) {}
-
   // Disconnects a client from the server
   rpc ClientDisconnect(ClientDisconnectRequest) returns (ClientDisconnectResponse) {}
 
-  // List all tunnels for an endppoint
-  rpc TunnelList(TunnelListRequest) returns (stream Tunnel) {}
-
-  // Add a tunnel
-  rpc TunnelAdd(TunnelAddRequest) returns (TunnelAddResponse) {}
-
-  // Delete a tunnel
-  rpc TunnelDelete(TunnelDeleteRequest) returns (TunnelDeleteResponse) {}
+  // Lists all connected gClients
+  rpc ClientList(ClientListRequest) returns (stream Client) {}
 
   // List all connections for a tunnel
   rpc ConnectionList(ConnectionListRequest) returns (stream Connection) {}
@@ -35,14 +29,14 @@ service AdminService {
   // Stops a SocksV5 server on a gClient
   rpc SocksStop(SocksStopRequest) returns (SocksStopResponse) {}
 
-}
+  // Add a tunnel
+  rpc TunnelAdd(TunnelAddRequest) returns (TunnelAddResponse) {}
 
-message ClientCreateRequest {
-  string clientID = 1;
-  uint32 ipAddress = 2;
-  uint32 port = 3;
-  string platform = 4;
-  string exeType = 5;
+  // Delete a tunnel
+  rpc TunnelDelete(TunnelDeleteRequest) returns (TunnelDeleteResponse) {}
+
+  // List all tunnels for an endppoint
+  rpc TunnelList(TunnelListRequest) returns (stream Tunnel) {}
 }
 
 message ByteStream {
@@ -50,68 +44,76 @@ message ByteStream {
 }
 
 message Client {
-    string clientID = 1;
+    string client_id = 1;
     uint32 status = 2;
-    uint32 ipAddress = 3;
+    uint32 ip_address = 3;
     uint32 port = 4;
 }
 
-message ClientListRequest {}
+message ClientCreateRequest {
+  string client_id = 1;
+  uint32 ip_address = 2;
+  uint32 port = 3;
+  string platform = 4;
+  string exe_type = 5;
+}
 
 message ClientDisconnectRequest {
-    string clientID = 1;
+    string client_id = 1;
 }
 
 message ClientDisconnectResponse {}
 
-message TunnelListRequest {
-    string clientID = 1;
+message ClientListRequest {}
+
+message Connection {
+    uint32 source_ip = 1;
+    uint32 source_port = 2;
+    uint32 destination_ip = 3;
+    uint32 destination_port = 4;
 }
 
+message ConnectionListRequest {
+    string client_id = 1;
+    string tunnel_id = 2;
+}
+
+message SocksStartRequest {
+    string client_id = 1;
+    uint32 socks_port = 2;
+}
+
+message SocksStartResponse {}
+
+message SocksStopRequest {
+    string client_id = 1;
+}
+
+message SocksStopResponse {}
+
 message Tunnel {
-    string ID = 1;
+    string id = 1;
     uint32 direction = 2;
-    uint32 listenIP = 3;
-    uint32 listenPort = 4;
-    uint32 destinationIP = 5;
-    uint32 destinationPort = 6;
+    uint32 listen_ip = 3;
+    uint32 listen_port = 4;
+    uint32 destination_ip = 5;
+    uint32 destination_port = 6;
 }
 
 message TunnelAddRequest {
-    string clientID = 1;
+    string client_id = 1;
     Tunnel tunnel = 2;
 }
 
 message TunnelAddResponse {}
 
 message TunnelDeleteRequest {
-    string clientID = 1;
-    string tunnelID = 2;
+    string client_id = 1;
+    string tunnel_id = 2;
 }
 
 message TunnelDeleteResponse {}
 
-message Connection {
-    uint32 sourceIP = 1;
-    uint32 sourcePort = 2;
-    uint32 destinationIP = 3;
-    uint32 destinationPort = 4;
+message TunnelListRequest {
+    string client_id = 1;
 }
-
-message ConnectionListRequest {
-    string clientID = 1;
-    string tunnelID = 2;
-}
-
-message SocksStartRequest {
-    string clientID = 1;
-    uint32 socksPort = 2;
-}
-
-message SocksStartResponse {}
-
-message SocksStopRequest {
-    string clientID = 1;
-}
-
-message SocksStopResponse {}

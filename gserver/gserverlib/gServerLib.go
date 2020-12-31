@@ -26,6 +26,9 @@ type ServerConnectionHandler struct {
 	tunnelID   string
 }
 
+// NewGServer is a constructor that will initialize
+// all gServer internal data structures and load any
+// existing configuration files.
 func NewGServer() *GServer {
 
 	newServer := new(GServer)
@@ -38,74 +41,8 @@ func NewGServer() *GServer {
 	return newServer
 }
 
-func (g *GServer) GetClientServer() *ClientServiceServer {
-	return g.clientServer
-}
-
-func (g *GServer) GetEndpoint(endpointID string) (*common.Endpoint, bool) {
-	endpoint, ok := g.endpoints[endpointID]
-	return endpoint, ok
-}
-
-func (g *GServer) GetEndpoints() map[string]*common.Endpoint {
-	return g.endpoints
-}
-
-func (g *GServer) Start(
-	clientPort int,
-	adminPort int,
-	tls bool,
-	certFile string,
-	keyFile string) {
-
-	go g.clientServer.Start(clientPort, tls, certFile, keyFile)
-	g.adminServer.Start(adminPort)
-}
-
-// GetByteStream will return the gRPC stream associated with a particular TCP connection.
-func (s *ServerConnectionHandler) GetByteStream(ctrlMessage *cs.TunnelControlMessage) common.ByteStream {
-	endpoint := s.server.endpoints[s.endpointID]
-	tunnel, ok := endpoint.GetTunnel(s.tunnelID)
-	if !ok {
-		log.Printf("Failed to lookup tunnel.")
-		return nil
-	}
-	stream := tunnel.GetControlStream()
-	conn := tunnel.GetConnection(ctrlMessage.ConnectionID)
-
-	message := new(cs.TunnelControlMessage)
-	message.Operation = common.TunnelCtrlAck
-	message.EndpointID = s.endpointID
-	message.TunnelID = s.tunnelID
-	message.ConnectionID = ctrlMessage.ConnectionID
-	// Since gRPC is always client to server, we need
-	// to get the client to make the byte stream connection.
-	stream.Send(message)
-	<-conn.Connected
-	return conn.GetStream()
-}
-
-// Acknowledge is called  when the remote client acknowledges that a tcp connection can
-// be established on the remote side.
-func (s *ServerConnectionHandler) Acknowledge(ctrlMessage *cs.TunnelControlMessage) common.ByteStream {
-	endpoint := s.server.endpoints[ctrlMessage.EndpointID]
-	tunnel, _ := endpoint.GetTunnel(ctrlMessage.TunnelID)
-	conn := tunnel.GetConnection(ctrlMessage.ConnectionID)
-
-	<-conn.Connected
-	return conn.GetStream()
-}
-
-//CloseStream will kill a TCP connection locally
-func (s *ServerConnectionHandler) CloseStream(connID int32) {
-	endpoint := s.server.endpoints[s.endpointID]
-	tunnel, _ := endpoint.GetTunnel(s.tunnelID)
-	conn := tunnel.GetConnection(connID)
-
-	close(conn.Kill)
-
-}
-
+// AddTunnel adds a tunnel to the gRPC server and then messages the gclient
+// to perform actions on the other end.
 func (s *GServer) AddTunnel(
 	clientID string,
 	tunnelID string,
@@ -123,7 +60,7 @@ func (s *GServer) AddTunnel(
 
 	controlMessage := new(cs.EndpointControlMessage)
 	controlMessage.Operation = common.EndpointCtrlAddTunnel
-	controlMessage.TunnelID = tunnelID
+	controlMessage.TunnelId = tunnelID
 	newTunnel := common.NewTunnel(tunnelID,
 		direction,
 		listenIP,
@@ -133,19 +70,19 @@ func (s *GServer) AddTunnel(
 
 	if direction == common.TunnelDirectionForward {
 
-		controlMessage.DestinationIP = common.IpToInt32(destinationIP)
+		controlMessage.DestinationIp = common.IpToInt32(destinationIP)
 		controlMessage.DestinationPort = uint32(destinationPort)
 		// The client doesn't need to know what port and IP we are
 		// listening on
-		controlMessage.ListenIP = 0
+		controlMessage.ListenIp = 0
 		controlMessage.ListenPort = 0
 	} else if direction == common.TunnelDirectionReverse {
 		// In the case of a reverse tunnel, the client
 		// doesn't need to know to where we are forwarding
 		// the connection
-		controlMessage.DestinationIP = 0
+		controlMessage.DestinationIp = 0
 		controlMessage.DestinationPort = 0
-		controlMessage.ListenIP = common.IpToInt32(listenIP)
+		controlMessage.ListenIp = common.IpToInt32(listenIP)
 		controlMessage.ListenPort = uint32(listenPort)
 	} else {
 		return fmt.Errorf("invalid tunnel direction")
@@ -182,6 +119,41 @@ func (s *GServer) AddTunnel(
 	endpointInput <- controlMessage
 
 	return nil
+}
+
+// DeleteTunnel will kill all TCP connections under the tunnel
+// and remove them from the list of managed tunnels.
+func (s *GServer) DeleteTunnel(
+	clientID string,
+	tunnelID string) error {
+	endpoint, ok := s.endpoints[clientID]
+	if !ok {
+		return fmt.Errorf("failed to delete tunnel. endpoint does not exist")
+	}
+	if !endpoint.StopAndDeleteTunnel(tunnelID) {
+		return fmt.Errorf("failed to delete tunnel")
+	}
+	return nil
+}
+
+// DisconnectEndpoint will send a control message to the
+// current endpoint to disconnect and end execution.
+func (s *GServer) DisconnectEndpoint(
+	endpointID string) {
+
+	log.Printf("Disconnecting %s", endpointID)
+
+	endpointInput, ok := s.endpointInputs[endpointID]
+	if !ok {
+		log.Printf("Unable to locate endpoint input channel. Disconnect failed.\n")
+		return
+	}
+
+	controlMessage := new(cs.EndpointControlMessage)
+	controlMessage.Operation = common.EndpointCtrlDisconnect
+
+	endpointInput <- controlMessage
+
 }
 
 // GenerateClient is responsible for building
@@ -241,41 +213,35 @@ func (s *GServer) GenerateClient(
 	return outputPath, nil
 }
 
-// Delete tunnel will kill all TCP connections under the tunnel
-// and remove them from the list of managed tunnels.
-func (s *GServer) DeleteTunnel(
-	clientID string,
-	tunnelID string) error {
-	endpoint, ok := s.endpoints[clientID]
-	if !ok {
-		return fmt.Errorf("failed to delete tunnel. endpoint does not exist")
-	}
-	if !endpoint.StopAndDeleteTunnel(tunnelID) {
-		return fmt.Errorf("failed to delete tunnel")
-	}
-	return nil
+// GetClientServer gets the grpc client server
+func (s *GServer) GetClientServer() *ClientServiceServer {
+	return s.clientServer
 }
 
-// UIDisconnectEndpoint will send a control message to the
-// current endpoint to disconnect and end execution.
-func (s *GServer) DisconnectEndpoint(
-	endpointID string) {
-
-	log.Printf("Disconnecting %s", endpointID)
-
-	endpointInput, ok := s.endpointInputs[endpointID]
-	if !ok {
-		log.Printf("Unable to locate endpoint input channel. Disconnect failed.\n")
-		return
-	}
-
-	controlMessage := new(cs.EndpointControlMessage)
-	controlMessage.Operation = common.EndpointCtrlDisconnect
-
-	endpointInput <- controlMessage
-
+// GetEndpoint will retreive an endpoint struct with the provided endpoint ID.
+func (s *GServer) GetEndpoint(endpointID string) (*common.Endpoint, bool) {
+	endpoint, ok := s.endpoints[endpointID]
+	return endpoint, ok
 }
 
+// GetEndpoints returns all the endpoints associated with the grpc server.
+func (s *GServer) GetEndpoints() map[string]*common.Endpoint {
+	return s.endpoints
+}
+
+// Start will start the client and admin gprc servers.
+func (s *GServer) Start(
+	clientPort int,
+	adminPort int,
+	tls bool,
+	certFile string,
+	keyFile string) {
+
+	go s.clientServer.Start(clientPort, tls, certFile, keyFile)
+	s.adminServer.Start(adminPort)
+}
+
+// StartProxy starts a proxy on the provided endpoint ID
 func (s *GServer) StartProxy(
 	endpointID string,
 	socksPort uint32) error {
@@ -296,6 +262,7 @@ func (s *GServer) StartProxy(
 	return nil
 }
 
+// StopProxy stops a proxy on the provided endpointID
 func (s *GServer) StopProxy(
 	endpointID string) error {
 
@@ -311,4 +278,48 @@ func (s *GServer) StopProxy(
 	endpointInput <- controlMessage
 
 	return nil
+}
+
+// Acknowledge is called  when the remote client acknowledges that a tcp connection can
+// be established on the remote side.
+func (s *ServerConnectionHandler) Acknowledge(ctrlMessage *cs.TunnelControlMessage) common.ByteStream {
+	endpoint := s.server.endpoints[ctrlMessage.EndpointId]
+	tunnel, _ := endpoint.GetTunnel(ctrlMessage.TunnelId)
+	conn := tunnel.GetConnection(ctrlMessage.ConnectionId)
+
+	<-conn.Connected
+	return conn.GetStream()
+}
+
+//CloseStream will kill a TCP connection locally
+func (s *ServerConnectionHandler) CloseStream(connID int32) {
+	endpoint := s.server.endpoints[s.endpointID]
+	tunnel, _ := endpoint.GetTunnel(s.tunnelID)
+	conn := tunnel.GetConnection(connID)
+
+	close(conn.Kill)
+
+}
+
+// GetByteStream will return the gRPC stream associated with a particular TCP connection.
+func (s *ServerConnectionHandler) GetByteStream(ctrlMessage *cs.TunnelControlMessage) common.ByteStream {
+	endpoint := s.server.endpoints[s.endpointID]
+	tunnel, ok := endpoint.GetTunnel(s.tunnelID)
+	if !ok {
+		log.Printf("Failed to lookup tunnel.")
+		return nil
+	}
+	stream := tunnel.GetControlStream()
+	conn := tunnel.GetConnection(ctrlMessage.ConnectionId)
+
+	message := new(cs.TunnelControlMessage)
+	message.Operation = common.TunnelCtrlAck
+	message.EndpointId = s.endpointID
+	message.TunnelId = s.tunnelID
+	message.ConnectionId = ctrlMessage.ConnectionId
+	// Since gRPC is always client to server, we need
+	// to get the client to make the byte stream connection.
+	stream.Send(message)
+	<-conn.Connected
+	return conn.GetStream()
 }

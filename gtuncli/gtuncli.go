@@ -11,6 +11,7 @@ import (
 
 	"github.com/hotnops/gTunnel/common"
 	as "github.com/hotnops/gTunnel/grpc/admin"
+	"github.com/olekukonko/tablewriter"
 	"google.golang.org/grpc"
 )
 
@@ -46,6 +47,8 @@ func clientList(ctx context.Context, adminClient as.AdminServiceClient) {
 	if err != nil {
 		log.Fatalf("[!] ClientList failed: %s", err)
 	}
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"ID", "Status", "IP Address", "Port"})
 	for {
 		message, err := stream.Recv()
 		if err == io.EOF {
@@ -53,9 +56,17 @@ func clientList(ctx context.Context, adminClient as.AdminServiceClient) {
 		} else if err != nil {
 			log.Fatalf("[!] Error receiving: %s", err)
 		} else {
-			log.Printf("%s\n", message.ClientID)
+			ip := common.Int32ToIP(message.IpAddress)
+			status := fmt.Sprintf("%d", message.Status)
+			port := fmt.Sprintf("%d", message.Port)
+			row := []string{message.ClientID,
+				status,
+				ip.String(),
+				port}
+			table.Append(row)
 		}
 	}
+	table.Render()
 }
 
 func clientCreate(ctx context.Context,
@@ -165,7 +176,7 @@ func tunnelAdd(ctx context.Context,
 	tunnel.ListenPort = uint32(*listenPort)
 
 	if len(*tunnelID) == 0 {
-		tunnel.ID = common.GenerateString(8)
+		tunnel.ID = common.GenerateString(common.TunnelIDSize)
 	} else {
 		tunnel.ID = *tunnelID
 	}
@@ -221,6 +232,15 @@ func tunnelList(ctx context.Context,
 	if err != nil {
 		log.Fatalf("[!] TunnelList failed: %s", err)
 	}
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"Client ID",
+		"Tunnel ID",
+		"Direction",
+		"Listen IP",
+		"Listen Port",
+		"Destination IP",
+		"Destination Port"})
+
 	for {
 		message, err := stream.Recv()
 		if err == io.EOF {
@@ -237,16 +257,22 @@ func tunnelList(ctx context.Context,
 
 			listenIP := common.Int32ToIP(message.ListenIP)
 			destIP := common.Int32ToIP(message.DestinationIP)
+			listenPort := fmt.Sprintf("%d", message.ListenPort)
+			destPort := fmt.Sprintf("%d", message.DestinationPort)
 
-			log.Printf("%s\t%s\t%s\t%d\t%s\t%d\n",
+			row := []string{*clientID,
 				message.ID,
 				direction,
-				listenIP,
-				message.ListenPort,
-				destIP,
-				message.DestinationPort)
+				listenIP.String(),
+				listenPort,
+				destIP.String(),
+				destPort}
+			table.Append(row)
+
 		}
 	}
+
+	table.Render()
 }
 
 func connectionList(ctx context.Context,

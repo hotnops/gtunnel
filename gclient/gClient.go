@@ -15,13 +15,21 @@ import (
 	"google.golang.org/grpc/credentials"
 )
 
-var serverAddress = "UNCONFIGURED"
-var serverPort = "" // This needs to be a string to be used with -X
 var clientToken = "UNCONFIGURED"
-
 var httpProxyServer = ""
 var httpsProxyServer = ""
+var serverAddress = "UNCONFIGURED"
+var serverPort = "" // This needs to be a string to be used with -X
 
+// ClientStreamHandler manages the context and grpc client for
+// a given TCP stream.
+type ClientStreamHandler struct {
+	client     cs.ClientServiceClient
+	gCtx       context.Context
+	ctrlStream common.TunnelControlStream
+}
+
+// gClient is a structure that represents a unique gClient
 type gClient struct {
 	endpoint    *common.Endpoint
 	ctrlStream  cs.ClientService_CreateEndpointControlStreamClient
@@ -31,10 +39,15 @@ type gClient struct {
 	socksServer *common.SocksServer
 }
 
-type ClientStreamHandler struct {
-	client     cs.ClientServiceClient
-	gCtx       context.Context
-	ctrlStream common.TunnelControlStream
+// Acknowledge is called to indicate that the TCP connection has been
+// established on the remote side of the tunnel.
+func (c *ClientStreamHandler) Acknowledge(ctrlMessage *cs.TunnelControlMessage) common.ByteStream {
+	return c.GetByteStream(ctrlMessage)
+}
+
+// CloseStream does nothing.
+func (c *ClientStreamHandler) CloseStream(connID int32) {
+	return
 }
 
 // GetByteStream is responsible for returning a bi-directional gRPC
@@ -48,9 +61,9 @@ func (c *ClientStreamHandler) GetByteStream(ctrlMessage *cs.TunnelControlMessage
 	// Once byte stream is open, send an initial message
 	// with all the appropriate IDs
 	bytesMessage := new(cs.BytesMessage)
-	bytesMessage.EndpointID = ctrlMessage.EndpointID
-	bytesMessage.TunnelID = ctrlMessage.TunnelID
-	bytesMessage.ConnectionID = ctrlMessage.ConnectionID
+	bytesMessage.EndpointId = ctrlMessage.EndpointId
+	bytesMessage.TunnelId = ctrlMessage.TunnelId
+	bytesMessage.ConnectionId = ctrlMessage.ConnectionId
 
 	stream.Send(bytesMessage)
 
@@ -60,17 +73,6 @@ func (c *ClientStreamHandler) GetByteStream(ctrlMessage *cs.TunnelControlMessage
 	c.ctrlStream.Send(ctrlMessage)
 
 	return stream
-}
-
-// Acknowledge is called to indicate that the TCP connection has been
-// established on the remote side of the tunnel.
-func (c *ClientStreamHandler) Acknowledge(ctrlMessage *cs.TunnelControlMessage) common.ByteStream {
-	return c.GetByteStream(ctrlMessage)
-}
-
-// CloseStream does nothing.
-func (c *ClientStreamHandler) CloseStream(connId int32) {
-	return
 }
 
 // receiveClientControlMessages is responsible for reading
@@ -101,11 +103,11 @@ func (c *gClient) receiveClientControlMessages() {
 				} else {
 					direction = common.TunnelDirectionReverse
 				}
-				newTunnel := common.NewTunnel(message.TunnelID,
+				newTunnel := common.NewTunnel(message.TunnelId,
 					uint32(direction),
-					common.Int32ToIP(message.ListenIP),
+					common.Int32ToIP(message.ListenIp),
 					message.ListenPort,
-					common.Int32ToIP(message.DestinationIP),
+					common.Int32ToIP(message.DestinationIp),
 					message.DestinationPort)
 
 				f := new(ClientStreamHandler)
@@ -126,11 +128,11 @@ func (c *gClient) receiveClientControlMessages() {
 				// Send a message through the new stream
 				// to let the server know the ID specifics
 				tMsg := new(cs.TunnelControlMessage)
-				tMsg.EndpointID = message.EndpointID
-				tMsg.TunnelID = message.TunnelID
+				tMsg.EndpointId = message.EndpointId
+				tMsg.TunnelId = message.TunnelId
 				tStream.Send(tMsg)
 
-				c.endpoint.AddTunnel(message.TunnelID, newTunnel)
+				c.endpoint.AddTunnel(message.TunnelId, newTunnel)
 				newTunnel.Start()
 
 			} else if operation == common.EndpointCtrlSocksProxy {
@@ -198,16 +200,16 @@ func main() {
 	gClient.gCtx, cancel = context.WithCancel(context.Background())
 	defer cancel()
 
-	emptyMsg := new(cs.Empty)
-	configMsg, err := gClient.grpcClient.GetConfigurationMessage(gClient.gCtx, emptyMsg)
+	req := new(cs.GetConfigurationMessageRequest)
+	configMsg, err := gClient.grpcClient.GetConfigurationMessage(gClient.gCtx, req)
 	if err != nil {
 		return
 	}
 
-	gClient.endpoint.SetID(configMsg.EndpointID)
+	gClient.endpoint.SetID(configMsg.EndpointId)
 
 	conMsg := new(cs.EndpointControlMessage)
-	conMsg.EndpointID = gClient.endpoint.Id
+	conMsg.EndpointId = gClient.endpoint.Id
 	gClient.ctrlStream, err = gClient.grpcClient.CreateEndpointControlStream(gClient.gCtx, conMsg)
 
 	if err != nil {

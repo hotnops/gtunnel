@@ -33,16 +33,6 @@ func NewConnection(tcpConn net.Conn) *Connection {
 	return c
 }
 
-// SetStream will set the byteStream for a connection
-func (c *Connection) SetStream(s ByteStream) {
-	c.byteStream = s
-}
-
-// GetStream will return the byteStream for a connection
-func (c *Connection) GetStream() ByteStream {
-	return c.byteStream
-}
-
 // Close will close a TCP connection and close the
 // Kill channel.
 func (c *Connection) Close() {
@@ -50,6 +40,54 @@ func (c *Connection) Close() {
 	if c.Status != ConnectionStatusClosed {
 		close(c.Kill)
 		c.Status = ConnectionStatusClosed
+	}
+}
+
+// GetStream will return the byteStream for a connection
+func (c *Connection) GetStream() ByteStream {
+	return c.byteStream
+}
+
+// handleEgressData will listen on the locally
+// connected TCP socket and send the data over the gRPC stream.
+func (c *Connection) handleEgressData() {
+	inputChan := make(chan []byte, 4096)
+
+	go func(t net.Conn) {
+		for {
+			bytes := make([]byte, 4096)
+			bytesRead, err := t.Read(bytes)
+			if err != nil {
+				if !c.remoteClose {
+					bytes = make([]byte, 4096)
+				}
+			}
+			inputChan <- bytes[:bytesRead]
+			if err != nil {
+				break
+			}
+		}
+	}(c.TCPConn)
+
+	for {
+		select {
+		case bytes, ok := <-inputChan:
+			if !ok {
+				inputChan = nil
+				break
+			}
+			message := new(cs.BytesMessage)
+			message.Content = bytes
+
+			c.byteStream.Send(message)
+			if len(message.Content) == 0 {
+				inputChan = nil
+				break
+			}
+		}
+		if inputChan == nil {
+			break
+		}
 	}
 }
 
@@ -114,47 +152,9 @@ func (c *Connection) SendCloseMessage() {
 	c.byteStream.Send(closeMessage)
 }
 
-// handleEgressData will listen on the locally
-// connected TCP socket and send the data over the gRPC stream.
-func (c *Connection) handleEgressData() {
-	inputChan := make(chan []byte, 4096)
-
-	go func(t net.Conn) {
-		for {
-			bytes := make([]byte, 4096)
-			bytesRead, err := t.Read(bytes)
-			if err != nil {
-				if !c.remoteClose {
-					bytes = make([]byte, 4096)
-				}
-			}
-			inputChan <- bytes[:bytesRead]
-			if err != nil {
-				break
-			}
-		}
-	}(c.TCPConn)
-
-	for {
-		select {
-		case bytes, ok := <-inputChan:
-			if !ok {
-				inputChan = nil
-				break
-			}
-			message := new(cs.BytesMessage)
-			message.Content = bytes
-
-			c.byteStream.Send(message)
-			if len(message.Content) == 0 {
-				inputChan = nil
-				break
-			}
-		}
-		if inputChan == nil {
-			break
-		}
-	}
+// SetStream will set the byteStream for a connection
+func (c *Connection) SetStream(s ByteStream) {
+	c.byteStream = s
 }
 
 // Start will start two goroutines for handling the TCP socket
