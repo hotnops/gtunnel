@@ -40,6 +40,7 @@ func main() {
 		log.Fatalf("[!] Failed to create log file.")
 	}
 
+	log.Printf("Logging output to : %s\n", file.Name())
 	log.SetOutput(file)
 
 	s.Start(*clientPort, *adminPort, *tls, *certFile, *keyFile)

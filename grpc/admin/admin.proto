@@ -44,10 +44,12 @@ message ByteStream {
 }
 
 message Client {
-    string client_id = 1;
-    uint32 status = 2;
-    uint32 ip_address = 3;
-    uint32 port = 4;
+    string name = 1;
+    string client_id = 2;
+    uint32 status = 3;
+    string remote_address = 4;
+    string connect_date = 5;
+    string hostname = 6;
 }
 
 message ClientCreateRequest {

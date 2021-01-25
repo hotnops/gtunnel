@@ -1,22 +1,60 @@
 package gserverlib
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net"
 	"os"
 	"os/exec"
+	"time"
 
 	"github.com/hotnops/gTunnel/common"
 	cs "github.com/hotnops/gTunnel/grpc/client"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
+const (
+	bearerString = "Bearer "
+	// MaxTokenSize is the maximum number of characters for a bearer token
+	MaxTokenSize = 48
+	// MinTokenSize is the minimum number of characters for a bearer token
+	MinTokenSize = 32
+)
+
+type contextKey string
+
+func (c contextKey) String() string {
+	return string(c)
+}
+
+type ConfiguredClient struct {
+	Arch   string
+	Name   string
+	Port   uint32
+	Server string
+	Token  string
+}
+
+type ConnectedClient struct {
+	configuredClient *ConfiguredClient
+	hostname         string
+	remoteAddr       string
+	uniqueID         string
+	connectDate      time.Time
+	endpoint         *common.Endpoint
+	endpointInput    chan *cs.EndpointControlMessage
+}
+
 type GServer struct {
-	endpoints      map[string]*common.Endpoint
-	endpointInputs map[string]chan *cs.EndpointControlMessage
-	authStore      *common.AuthStore
-	clientServer   *ClientServiceServer
-	adminServer    *AdminServiceServer
+	//endpoints        map[string]*common.Endpoint
+	//endpointInputs   map[string]chan *cs.EndpointControlMessage
+	configStore      *ConfigStore
+	clientServer     *ClientServiceServer
+	adminServer      *AdminServiceServer
+	connectedClients map[string]*ConnectedClient
 }
 
 // ServerConnectionHandler TODO
@@ -32,13 +70,105 @@ type ServerConnectionHandler struct {
 func NewGServer() *GServer {
 
 	newServer := new(GServer)
-	newServer.endpointInputs = make(map[string]chan *cs.EndpointControlMessage)
-	newServer.endpoints = make(map[string]*common.Endpoint)
-	newServer.authStore, _ = common.InitializeAuthStore(common.ConfigurationFile)
+
+	// Create and initialize all of the existing configured clients
+	newServer.configStore = NewConfigStore()
+	newServer.configStore.Initialize()
+
 	newServer.clientServer = NewClientServiceServer(newServer)
 	newServer.adminServer = NewAdminServiceServer(newServer)
+	newServer.connectedClients = make(map[string]*ConnectedClient)
 
 	return newServer
+}
+
+func NewConfiguredClient(clientData map[string]interface{}) *ConfiguredClient {
+	c := new(ConfiguredClient)
+	c.Arch = clientData["Arch"].(string)
+	c.Name = clientData["Name"].(string)
+	c.Port = clientData["Port"].(uint32)
+	c.Server = clientData["Server"].(string)
+	c.Token = clientData["Token"].(string)
+	return c
+}
+
+// AddConnectedClient will take in a unique ID and a ConnectedClient structure
+// and insert them into the connectedClients map with the unique ID as the key.
+func (s *GServer) AddConnectedClient(uuid string, client *ConnectedClient) bool {
+	_, ok := s.connectedClients[uuid]
+
+	if ok {
+		log.Printf("[!] Attempting to add client that already exists")
+		return false
+	}
+	s.connectedClients[uuid] = client
+
+	return true
+}
+
+// StreamAuthInterceptor will check for proper authorization for all
+// stream based gRPC calls.
+func (s *GServer) StreamAuthInterceptor(srv interface{},
+	ss grpc.ServerStream,
+	info *grpc.StreamServerInfo,
+	handler grpc.StreamHandler) error {
+
+	ctx := ss.Context()
+
+	token, uuid, err := GetClientInfoFromCtx(ctx)
+
+	if err != nil {
+		return err
+	}
+
+	client := s.configStore.GetConfiguredClient(token)
+
+	if client == nil {
+		log.Printf("[!] Invalid bearer token\n")
+		return status.Errorf(codes.Unauthenticated, err.Error())
+	}
+
+	_, ok := s.connectedClients[uuid]
+
+	if !ok {
+		log.Printf("[!] UUID not connected\n")
+		return status.Errorf(codes.Unauthenticated, err.Error())
+	}
+
+	ctx = context.WithValue(ctx, contextKey("uuid"), uuid)
+
+	return handler(srv, ss)
+}
+
+// UnaryAuthInterceptor is called for all unary gRPC functions
+// to validate that the caller is authorized.
+func (s *GServer) UnaryAuthInterceptor(ctx context.Context,
+	req interface{},
+	info *grpc.UnaryServerInfo,
+	handler grpc.UnaryHandler) (interface{}, error) {
+
+	token, uuid, err := GetClientInfoFromCtx(ctx)
+
+	if err != nil {
+		return nil, err
+	}
+
+	client := s.configStore.GetConfiguredClient(token)
+
+	if client == nil {
+		log.Printf("[!] Invalid bearer token\n")
+		return nil, status.Errorf(codes.Unauthenticated, err.Error())
+	}
+
+	_, ok := s.connectedClients[uuid]
+
+	if ok {
+		log.Printf("[!] gClient with uuid: %s already connected\n", uuid)
+	}
+
+	ctx = context.WithValue(ctx, contextKey("uuid"), uuid)
+
+	return handler(ctx, req)
 }
 
 // AddTunnel adds a tunnel to the gRPC server and then messages the gclient
@@ -52,10 +182,11 @@ func (s *GServer) AddTunnel(
 	destinationIP net.IP,
 	destinationPort uint32) error {
 
-	endpointInput, ok := s.endpointInputs[clientID]
+	client, ok := s.connectedClients[clientID]
+
 	if !ok {
-		log.Printf("Unable to locate endpoint input channel. Addtunnel failed")
-		return fmt.Errorf("addtunnel failed - endpoint doesn't exist")
+		log.Printf("[!] client with uuuid: %s does not exist\n")
+		return fmt.Errorf("addtunnel failed - client does not exist")
 	}
 
 	controlMessage := new(cs.EndpointControlMessage)
@@ -88,13 +219,7 @@ func (s *GServer) AddTunnel(
 		return fmt.Errorf("invalid tunnel direction")
 	}
 
-	endpoint, ok := s.endpoints[clientID]
-	if !ok {
-		log.Printf("Unable to locate endpoint. Addtunnel failed")
-		return fmt.Errorf("Endpoint doesn't exist")
-	}
-
-	if _, ok := endpoint.GetTunnel(tunnelID); ok {
+	if _, ok := client.endpoint.GetTunnel(tunnelID); ok {
 		log.Printf("Tunnel ID already exists for this endpoint. Generating ID instead")
 		tunnelID = common.GenerateString(common.TunnelIDSize)
 	}
@@ -114,9 +239,9 @@ func (s *GServer) AddTunnel(
 		}
 	}
 
-	endpoint.AddTunnel(tunnelID, newTunnel)
+	client.endpoint.AddTunnel(tunnelID, newTunnel)
 
-	endpointInput <- controlMessage
+	client.endpointInput <- controlMessage
 
 	return nil
 }
@@ -126,34 +251,46 @@ func (s *GServer) AddTunnel(
 func (s *GServer) DeleteTunnel(
 	clientID string,
 	tunnelID string) error {
-	endpoint, ok := s.endpoints[clientID]
+
+	client, ok := s.connectedClients[clientID]
+
 	if !ok {
-		return fmt.Errorf("failed to delete tunnel. endpoint does not exist")
+		log.Printf("[!] client with uuuid: %s does not exist\n")
+		return fmt.Errorf("deletetunnel failed - client does not exist")
 	}
-	if !endpoint.StopAndDeleteTunnel(tunnelID) {
+
+	if !client.endpoint.StopAndDeleteTunnel(tunnelID) {
 		return fmt.Errorf("failed to delete tunnel")
 	}
+
+	controlMessage := new(cs.EndpointControlMessage)
+	controlMessage.Operation = common.EndpointCtrlDeleteTunnel
+	controlMessage.TunnelId = tunnelID
+
+	client.endpointInput <- controlMessage
+
 	return nil
 }
 
 // DisconnectEndpoint will send a control message to the
 // current endpoint to disconnect and end execution.
 func (s *GServer) DisconnectEndpoint(
-	endpointID string) {
+	clientID string) error {
 
-	log.Printf("Disconnecting %s", endpointID)
+	log.Printf("Disconnecting %s", clientID)
 
-	endpointInput, ok := s.endpointInputs[endpointID]
+	client, ok := s.connectedClients[clientID]
+
 	if !ok {
-		log.Printf("Unable to locate endpoint input channel. Disconnect failed.\n")
-		return
+		log.Printf("[!] client with uuuid: %s does not exist\n")
+		return fmt.Errorf("disconnectendpoint failed - client does not exist")
 	}
 
 	controlMessage := new(cs.EndpointControlMessage)
 	controlMessage.Operation = common.EndpointCtrlDisconnect
 
-	endpointInput <- controlMessage
-
+	client.endpointInput <- controlMessage
+	return nil
 }
 
 // GenerateClient is responsible for building
@@ -164,22 +301,25 @@ func (s *GServer) GenerateClient(
 	serverPort uint16,
 	clientID string) (string, error) {
 
-	const (
-		PLATFORM = iota
-		SERVERADDRESS
-		SERVERPORT
-		ID
-		HTTPSPROXY
-		HTTPPROXY
-		RETRYCOUNT
-		RETRYPERIOD
-	)
-
 	if clientID == "" {
 		clientID = common.GenerateString(8)
 	}
 
-	token, err := s.authStore.GenerateNewClientConfig(clientID)
+	configuredClient := new(ConfiguredClient)
+
+	token, err := GenerateToken()
+	if err != nil {
+		log.Printf("[!] Failed to generate token, I guess?")
+		return "", err
+	}
+
+	configuredClient.Arch = platform
+	configuredClient.Server = serverAddress
+	configuredClient.Port = uint32(serverPort)
+	configuredClient.Name = clientID
+	configuredClient.Token = token
+
+	s.configStore.AddConfiguredClient(token, configuredClient)
 
 	outputPath := fmt.Sprintf("configured/%s", clientID)
 
@@ -207,7 +347,7 @@ func (s *GServer) GenerateClient(
 	err = cmd.Run()
 	if err != nil {
 		log.Printf("[!] Failed to generate client: %s", err)
-		s.authStore.DeleteClientConfig(token)
+		s.configStore.DeleteConfiguredClient(token)
 		return "", err
 	}
 	return outputPath, nil
@@ -219,14 +359,15 @@ func (s *GServer) GetClientServer() *ClientServiceServer {
 }
 
 // GetEndpoint will retreive an endpoint struct with the provided endpoint ID.
-func (s *GServer) GetEndpoint(endpointID string) (*common.Endpoint, bool) {
-	endpoint, ok := s.endpoints[endpointID]
-	return endpoint, ok
-}
+func (s *GServer) GetEndpoint(clientID string) (*common.Endpoint, bool) {
+	client, ok := s.connectedClients[clientID]
 
-// GetEndpoints returns all the endpoints associated with the grpc server.
-func (s *GServer) GetEndpoints() map[string]*common.Endpoint {
-	return s.endpoints
+	if !ok {
+		log.Printf("[!] client with uuuid: %s does not exist\n")
+		return nil, ok
+	}
+
+	return client.endpoint, ok
 }
 
 // Start will start the client and admin gprc servers.
@@ -243,13 +384,14 @@ func (s *GServer) Start(
 
 // StartProxy starts a proxy on the provided endpoint ID
 func (s *GServer) StartProxy(
-	endpointID string,
+	clientID string,
 	socksPort uint32) error {
 
-	endpointInput, ok := s.endpointInputs[endpointID]
+	client, ok := s.connectedClients[clientID]
+
 	if !ok {
-		log.Printf("Unable to locate endpoint input channel. socks failed")
-		return fmt.Errorf("Unable to locate endpoint input channel. socks failed")
+		log.Printf("[!] client with uuuid: %s does not exist\n")
+		return fmt.Errorf("startproxy failed - client does not exist")
 	}
 
 	log.Printf("Starting socks proxy on : %d", socksPort)
@@ -257,34 +399,35 @@ func (s *GServer) StartProxy(
 	controlMessage.Operation = common.EndpointCtrlSocksProxy
 	controlMessage.ListenPort = uint32(socksPort)
 
-	endpointInput <- controlMessage
+	client.endpointInput <- controlMessage
 
 	return nil
 }
 
 // StopProxy stops a proxy on the provided endpointID
 func (s *GServer) StopProxy(
-	endpointID string) error {
+	clientID string) error {
 
-	endpointInput, ok := s.endpointInputs[endpointID]
+	client, ok := s.connectedClients[clientID]
+
 	if !ok {
-		log.Printf("Unable to locate endpoint input channel. socks failed")
-		return fmt.Errorf("Unable to locate endpoint input channel. socks failed")
+		log.Printf("[!] client with uuuid: %s does not exist\n")
+		return fmt.Errorf("stopproxy failed - client does not exist")
 	}
 
 	controlMessage := new(cs.EndpointControlMessage)
 	controlMessage.Operation = common.EndpointCtrlSocksKill
 
-	endpointInput <- controlMessage
+	client.endpointInput <- controlMessage
 
 	return nil
 }
 
 // Acknowledge is called  when the remote client acknowledges that a tcp connection can
 // be established on the remote side.
-func (s *ServerConnectionHandler) Acknowledge(ctrlMessage *cs.TunnelControlMessage) common.ByteStream {
-	endpoint := s.server.endpoints[ctrlMessage.EndpointId]
-	tunnel, _ := endpoint.GetTunnel(ctrlMessage.TunnelId)
+func (s *ServerConnectionHandler) Acknowledge(tunnel *common.Tunnel,
+	ctrlMessage *cs.TunnelControlMessage) common.ByteStream {
+
 	conn := tunnel.GetConnection(ctrlMessage.ConnectionId)
 
 	<-conn.Connected
@@ -292,9 +435,8 @@ func (s *ServerConnectionHandler) Acknowledge(ctrlMessage *cs.TunnelControlMessa
 }
 
 //CloseStream will kill a TCP connection locally
-func (s *ServerConnectionHandler) CloseStream(connID int32) {
-	endpoint := s.server.endpoints[s.endpointID]
-	tunnel, _ := endpoint.GetTunnel(s.tunnelID)
+func (s *ServerConnectionHandler) CloseStream(tunnel *common.Tunnel, connID string) {
+
 	conn := tunnel.GetConnection(connID)
 
 	close(conn.Kill)
@@ -302,19 +444,14 @@ func (s *ServerConnectionHandler) CloseStream(connID int32) {
 }
 
 // GetByteStream will return the gRPC stream associated with a particular TCP connection.
-func (s *ServerConnectionHandler) GetByteStream(ctrlMessage *cs.TunnelControlMessage) common.ByteStream {
-	endpoint := s.server.endpoints[s.endpointID]
-	tunnel, ok := endpoint.GetTunnel(s.tunnelID)
-	if !ok {
-		log.Printf("Failed to lookup tunnel.")
-		return nil
-	}
+func (s *ServerConnectionHandler) GetByteStream(tunnel *common.Tunnel,
+	ctrlMessage *cs.TunnelControlMessage) common.ByteStream {
+
 	stream := tunnel.GetControlStream()
 	conn := tunnel.GetConnection(ctrlMessage.ConnectionId)
 
 	message := new(cs.TunnelControlMessage)
 	message.Operation = common.TunnelCtrlAck
-	message.EndpointId = s.endpointID
 	message.TunnelId = s.tunnelID
 	message.ConnectionId = ctrlMessage.ConnectionId
 	// Since gRPC is always client to server, we need

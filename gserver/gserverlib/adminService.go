@@ -94,18 +94,20 @@ func (s *AdminServiceServer) ClientList(req *as.ClientListRequest,
 	stream as.AdminService_ClientListServer) error {
 	log.Printf("[*] ClientList called")
 
-	endpoints := s.gServer.GetEndpoints()
+	clients := s.gServer.connectedClients
 
-	if len(endpoints) == 0 {
+	if len(clients) == 0 {
 		return status.Error(codes.OutOfRange, "no clients exist")
 	}
 
-	for _, endpoint := range endpoints {
+	for _, client := range clients {
 		resp := new(as.Client)
-		resp.ClientId = endpoint.Id
+		resp.Name = client.configuredClient.Name
+		resp.ClientId = client.uniqueID
 		resp.Status = 1
-		resp.IpAddress = 0
-		resp.Port = 0
+		resp.RemoteAddress = client.remoteAddr
+		resp.Hostname = client.hostname
+		resp.ConnectDate = client.connectDate.String()
 		stream.Send(resp)
 	}
 
@@ -210,6 +212,10 @@ func (s *AdminServiceServer) Start(port int) {
 func (s *AdminServiceServer) TunnelAdd(ctx context.Context, req *as.TunnelAddRequest) (
 	*as.TunnelAddResponse, error) {
 	log.Printf("[*] TunnelAdd called")
+
+	if req.Tunnel.Id == "" {
+		req.Tunnel.Id = common.GenerateString(8)
+	}
 
 	err := s.gServer.AddTunnel(
 		req.ClientId,

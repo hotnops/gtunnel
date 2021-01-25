@@ -26,6 +26,14 @@ var commands = []string{
 	"socksstart",
 	"socksstop"}
 
+func printCommands() {
+	fmt.Printf("[*] Available commands: \n")
+
+	for _, command := range commands {
+		fmt.Printf("\t%s\n", command)
+	}
+}
+
 func connect(ip string, port uint32) (as.AdminServiceClient, error) {
 	addr := fmt.Sprintf("%s:%d", ip, port)
 
@@ -48,7 +56,7 @@ func clientList(ctx context.Context, adminClient as.AdminServiceClient) {
 		log.Fatalf("[!] ClientList failed: %s", err)
 	}
 	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"ID", "Status", "IP Address", "Port"})
+	table.SetHeader([]string{"Name", "Unique ID", "Status", "Remote Address", "Hostname", "Date Connected"})
 	for {
 		message, err := stream.Recv()
 		if err == io.EOF {
@@ -56,13 +64,14 @@ func clientList(ctx context.Context, adminClient as.AdminServiceClient) {
 		} else if err != nil {
 			log.Fatalf("[!] Error receiving: %s", err)
 		} else {
-			ip := common.Int32ToIP(message.IpAddress)
+			name := message.Name
 			status := fmt.Sprintf("%d", message.Status)
-			port := fmt.Sprintf("%d", message.Port)
-			row := []string{message.ClientID,
+			row := []string{name,
+				message.ClientId,
 				status,
-				ip.String(),
-				port}
+				message.RemoteAddress,
+				message.Hostname,
+				message.ConnectDate}
 			table.Append(row)
 		}
 	}
@@ -89,7 +98,7 @@ func clientCreate(ctx context.Context,
 	ip := net.ParseIP(*serverAddress)
 
 	clientCreateReq := new(as.ClientCreateRequest)
-	clientCreateReq.ClientID = *clientID
+	clientCreateReq.ClientId = *clientID
 	clientCreateReq.IpAddress = common.IpToInt32(ip)
 	clientCreateReq.Port = uint32(*serverPort)
 	clientCreateReq.Platform = *clientPlatform
@@ -129,7 +138,7 @@ func clientDisconnect(ctx context.Context,
 	disconnectCmd.Parse(args)
 
 	disconnectReq := new(as.ClientDisconnectRequest)
-	disconnectReq.ClientID = *clientID
+	disconnectReq.ClientId = *clientID
 
 	_, err := adminClient.ClientDisconnect(ctx, disconnectReq)
 	if err != nil {
@@ -170,18 +179,18 @@ func tunnelAdd(ctx context.Context,
 	}
 	lIP := net.ParseIP(*listenIP)
 	dIP := net.ParseIP(*destinationIP)
-	tunnel.DestinationIP = common.IpToInt32(dIP)
+	tunnel.DestinationIp = common.IpToInt32(dIP)
 	tunnel.DestinationPort = uint32(*destinationPort)
-	tunnel.ListenIP = common.IpToInt32(lIP)
+	tunnel.ListenIp = common.IpToInt32(lIP)
 	tunnel.ListenPort = uint32(*listenPort)
 
 	if len(*tunnelID) == 0 {
-		tunnel.ID = common.GenerateString(common.TunnelIDSize)
+		tunnel.Id = common.GenerateString(common.TunnelIDSize)
 	} else {
-		tunnel.ID = *tunnelID
+		tunnel.Id = *tunnelID
 	}
 
-	tunnelAddReq.ClientID = *clientID
+	tunnelAddReq.ClientId = *clientID
 	tunnelAddReq.Tunnel = tunnel
 
 	_, err := adminClient.TunnelAdd(ctx, tunnelAddReq)
@@ -206,8 +215,8 @@ func tunnelDelete(ctx context.Context,
 
 	req := new(as.TunnelDeleteRequest)
 
-	req.ClientID = *clientID
-	req.TunnelID = *tunnelID
+	req.ClientId = *clientID
+	req.TunnelId = *tunnelID
 
 	_, err := adminClient.TunnelDelete(ctx, req)
 
@@ -226,7 +235,7 @@ func tunnelList(ctx context.Context,
 
 	tunnelListCmd.Parse(args)
 	req := new(as.TunnelListRequest)
-	req.ClientID = *clientID
+	req.ClientId = *clientID
 
 	stream, err := adminClient.TunnelList(ctx, req)
 	if err != nil {
@@ -255,13 +264,13 @@ func tunnelList(ctx context.Context,
 				direction = "reverse"
 			}
 
-			listenIP := common.Int32ToIP(message.ListenIP)
-			destIP := common.Int32ToIP(message.DestinationIP)
+			listenIP := common.Int32ToIP(message.ListenIp)
+			destIP := common.Int32ToIP(message.DestinationIp)
 			listenPort := fmt.Sprintf("%d", message.ListenPort)
 			destPort := fmt.Sprintf("%d", message.DestinationPort)
 
 			row := []string{*clientID,
-				message.ID,
+				message.Id,
 				direction,
 				listenIP.String(),
 				listenPort,
@@ -287,8 +296,8 @@ func connectionList(ctx context.Context,
 
 	connectionListCmd.Parse(args)
 	req := new(as.ConnectionListRequest)
-	req.ClientID = *clientID
-	req.TunnelID = *tunnelID
+	req.ClientId = *clientID
+	req.TunnelId = *tunnelID
 
 	stream, err := adminClient.ConnectionList(ctx, req)
 	if err != nil {
@@ -302,8 +311,8 @@ func connectionList(ctx context.Context,
 			log.Fatalf("[!] Error receiving: %s", err)
 		} else {
 
-			sourceIP := common.Int32ToIP(message.SourceIP)
-			destIP := common.Int32ToIP(message.DestinationIP)
+			sourceIP := common.Int32ToIP(message.SourceIp)
+			destIP := common.Int32ToIP(message.DestinationIp)
 
 			log.Printf("%s\t%d\t%s\t%d\n",
 				sourceIP,
@@ -327,7 +336,7 @@ func socksStart(ctx context.Context,
 	socksStartCmd.Parse(args)
 
 	req := new(as.SocksStartRequest)
-	req.ClientID = *clientID
+	req.ClientId = *clientID
 	req.SocksPort = uint32(*socksPort)
 
 	_, err := adminClient.SocksStart(ctx, req)
@@ -348,7 +357,7 @@ func socksStop(ctx context.Context,
 	socksStopCmd.Parse(args)
 
 	req := new(as.SocksStopRequest)
-	req.ClientID = *clientID
+	req.ClientId = *clientID
 
 	_, err := adminClient.SocksStop(ctx, req)
 
@@ -375,6 +384,11 @@ func main() {
 	}
 
 	ctx, _ := context.WithCancel(context.Background())
+
+	if len(os.Args) == 1 {
+		printCommands()
+		return
+	}
 
 	switch os.Args[1] {
 	case commands[0]:

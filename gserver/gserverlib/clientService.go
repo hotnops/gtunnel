@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"time"
 
 	cs "github.com/hotnops/gTunnel/grpc/client"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
 	"github.com/hotnops/gTunnel/common"
+	"google.golang.org/grpc/peer"
 )
 
 type ClientServiceServer struct {
@@ -26,19 +28,42 @@ func NewClientServiceServer(gserver *GServer) *ClientServiceServer {
 
 // GetConfigurationMessage returns the client ID and kill date to a
 // gClient based on the bearer token provided.
-func (s *ClientServiceServer) GetConfigurationMessage(ctx context.Context, empty *cs.GetConfigurationMessageRequest) (
+func (s *ClientServiceServer) GetConfigurationMessage(ctx context.Context, req *cs.GetConfigurationMessageRequest) (
 	*cs.GetConfigurationMessageResponse, error) {
 
-	token, err := common.GetBearerTokenFromCtx(ctx)
+	token, uuid, err := GetClientInfoFromCtx(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	clientConfig, err := s.gServer.authStore.GetClientConfig(token)
+	clientConfig := s.gServer.configStore.GetConfiguredClient(token)
+
+	if clientConfig == nil {
+		log.Printf("[!] Failed to lookup configured client with key: %s\n", token)
+		return nil, fmt.Errorf("token does not exist in client configuration")
+	}
+
+	peerInfo, ok := peer.FromContext(ctx)
+
+	if !ok {
+		log.Printf("[!] Failed to get peer info.")
+		return nil, fmt.Errorf("getting info from peer context failed")
+	}
+
+	log.Printf("[*] New client connected: %s\n%s\n%s\n", clientConfig.Name, uuid, peerInfo.Addr.String())
+
+	connectedclient := new(ConnectedClient)
+	connectedclient.uniqueID = uuid
+	connectedclient.remoteAddr = peerInfo.Addr.String()
+	connectedclient.hostname = req.Hostname
+	connectedclient.configuredClient = clientConfig
+	connectedclient.connectDate = time.Now()
+	connectedclient.endpoint = common.NewEndpoint()
+	connectedclient.endpointInput = make(chan *cs.EndpointControlMessage)
+
+	s.gServer.AddConnectedClient(uuid, connectedclient)
 
 	configMsg := new(cs.GetConfigurationMessageResponse)
-	configMsg.EndpointId = clientConfig.ID
-	configMsg.KillDate = 0
 
 	return configMsg, nil
 
@@ -50,39 +75,42 @@ func (s *ClientServiceServer) GetConfigurationMessage(ctx context.Context, empty
 func (s *ClientServiceServer) CreateEndpointControlStream(
 	ctrlMessage *cs.EndpointControlMessage,
 	stream cs.ClientService_CreateEndpointControlStreamServer) error {
-	log.Printf("Endpoint connected: id: %s", ctrlMessage.EndpointId)
 
 	ctx, cancel := context.WithCancel(stream.Context())
 	defer cancel()
 
-	// This is for accepting keyboard input, each client needs their own
-	// channel
-	inputChannel := make(chan *cs.EndpointControlMessage)
-	s.gServer.endpointInputs[ctrlMessage.EndpointId] = inputChannel
+	_, uuid, err := GetClientInfoFromCtx(ctx)
 
-	s.gServer.endpoints[ctrlMessage.EndpointId] = common.NewEndpoint()
-	s.gServer.endpoints[ctrlMessage.EndpointId].SetID(ctrlMessage.EndpointId)
+	if err != nil {
+		return err
+	}
+
+	client, ok := s.gServer.connectedClients[uuid]
+
+	if !ok {
+		log.Printf("[!] UUID does not exist to create control stream")
+		return fmt.Errorf("uuid does not exist")
+	}
 
 	for {
 		select {
 
-		case controlMessage, ok := <-inputChannel:
+		case controlMessage, ok := <-client.endpointInput:
 			if !ok {
 				log.Printf(
 					"Failed to read from EndpointCtrlStream channel. Exiting")
 				break
 			}
-			controlMessage.EndpointId = ctrlMessage.EndpointId
 			stream.Send(controlMessage)
 		case <-ctx.Done():
-			log.Printf("Endpoint disconnected: %s", ctrlMessage.EndpointId)
-			endpoint, ok := s.gServer.endpoints[ctrlMessage.EndpointId]
+			log.Printf("Endpoint disconnected: %s", uuid)
+			client, ok := s.gServer.connectedClients[uuid]
 			if !ok {
 				log.Printf("Endpoint already removed: %s",
-					ctrlMessage.EndpointId)
+					uuid)
 			}
-			endpoint.Stop()
-			delete(s.gServer.endpoints, ctrlMessage.EndpointId)
+			client.endpoint.Stop()
+			delete(s.gServer.connectedClients, uuid)
 			return nil
 		}
 	}
@@ -94,13 +122,30 @@ func (s *ClientServiceServer) CreateEndpointControlStream(
 func (s *ClientServiceServer) CreateTunnelControlStream(
 	stream cs.ClientService_CreateTunnelControlStreamServer) error {
 
+	_, uuid, err := GetClientInfoFromCtx(stream.Context())
+
+	if err != nil {
+		return err
+	}
+
+	client, ok := s.gServer.connectedClients[uuid]
+
+	if !ok {
+		log.Printf("[!] CreateTunnelControl: uuid doesn't exist: %s\n", uuid)
+		return fmt.Errorf("uuid does not exist")
+	}
+
 	tunMessage, err := stream.Recv()
 	if err != nil {
 		log.Printf("Failed to receive initial tun stream message: %v", err)
 	}
 
-	endpoint := s.gServer.endpoints[tunMessage.EndpointId]
-	tun, _ := endpoint.GetTunnel(tunMessage.TunnelId)
+	tun, ok := client.endpoint.GetTunnel(tunMessage.TunnelId)
+
+	if !ok {
+		log.Printf("[!] Received tunnel messsage for ID that doesn't exist")
+		return fmt.Errorf("failed to establish tunnel")
+	}
 
 	tun.SetControlStream(stream)
 	tun.Start()
@@ -108,19 +153,40 @@ func (s *ClientServiceServer) CreateTunnelControlStream(
 	return nil
 }
 
-// CreateConnectionStream is a gRPC function that the client twill call to
+// CreateConnectionStream is a gRPC function that the client will call to
 // create a bi-directional data stream to carry data that gets delivered
 // over the TCP connection.
 func (s *ClientServiceServer) CreateConnectionStream(
 	stream cs.ClientService_CreateConnectionStreamServer) error {
+
+	_, uuid, err := GetClientInfoFromCtx(stream.Context())
+
+	if err != nil {
+		return err
+	}
+
+	client, ok := s.gServer.connectedClients[uuid]
+
+	if !ok {
+		log.Printf("[!] CreateTunnelControl: uuid doesn't exist: %s\n", uuid)
+		return fmt.Errorf("uuid does not exist")
+	}
+
 	bytesMessage, _ := stream.Recv()
-	endpoint := s.gServer.endpoints[bytesMessage.EndpointId]
-	tunnel, _ := endpoint.GetTunnel(bytesMessage.TunnelId)
+	tunnel, ok := client.endpoint.GetTunnel(bytesMessage.TunnelId)
+
+	if !ok {
+		log.Printf("[!] Got a ByteMessage for a non-existent tunnel: %s\n",
+			bytesMessage.TunnelId)
+		return fmt.Errorf("invalid tunnel id")
+	}
+
 	conn := tunnel.GetConnection(bytesMessage.ConnectionId)
+
 	conn.SetStream(stream)
 	close(conn.Connected)
 	<-conn.Kill
-	tunnel.RemoveConnection(conn.Id)
+	tunnel.RemoveConnection(conn.ID)
 	return nil
 }
 
@@ -134,8 +200,8 @@ func (s *ClientServiceServer) Start(
 	log.Printf("[*] Starting client grpc server on port: %d\n", port)
 	var opts []grpc.ServerOption
 	opts = append(opts,
-		grpc.UnaryInterceptor(common.UnaryAuthInterceptor),
-		grpc.StreamInterceptor(common.StreamAuthInterceptor),
+		grpc.UnaryInterceptor(s.gServer.UnaryAuthInterceptor),
+		grpc.StreamInterceptor(s.gServer.StreamAuthInterceptor),
 	)
 
 	lis, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", port))

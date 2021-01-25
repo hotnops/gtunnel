@@ -8,6 +8,7 @@ import (
 	"os"
 
 	cs "github.com/hotnops/gTunnel/grpc/client"
+	"github.com/segmentio/ksuid"
 
 	"github.com/hotnops/gTunnel/common"
 
@@ -41,18 +42,21 @@ type gClient struct {
 
 // Acknowledge is called to indicate that the TCP connection has been
 // established on the remote side of the tunnel.
-func (c *ClientStreamHandler) Acknowledge(ctrlMessage *cs.TunnelControlMessage) common.ByteStream {
-	return c.GetByteStream(ctrlMessage)
+func (c *ClientStreamHandler) Acknowledge(tunnel *common.Tunnel,
+	ctrlMessage *cs.TunnelControlMessage) common.ByteStream {
+	return c.GetByteStream(tunnel, ctrlMessage)
 }
 
 // CloseStream does nothing.
-func (c *ClientStreamHandler) CloseStream(connID int32) {
+func (c *ClientStreamHandler) CloseStream(tunnel *common.Tunnel, connID string) {
 	return
 }
 
 // GetByteStream is responsible for returning a bi-directional gRPC
 // stream that will be used for relaying TCP data.
-func (c *ClientStreamHandler) GetByteStream(ctrlMessage *cs.TunnelControlMessage) common.ByteStream {
+func (c *ClientStreamHandler) GetByteStream(tunnel *common.Tunnel,
+	ctrlMessage *cs.TunnelControlMessage) common.ByteStream {
+
 	stream, err := c.client.CreateConnectionStream(c.gCtx)
 	if err != nil {
 		return nil
@@ -61,7 +65,6 @@ func (c *ClientStreamHandler) GetByteStream(ctrlMessage *cs.TunnelControlMessage
 	// Once byte stream is open, send an initial message
 	// with all the appropriate IDs
 	bytesMessage := new(cs.BytesMessage)
-	bytesMessage.EndpointId = ctrlMessage.EndpointId
 	bytesMessage.TunnelId = ctrlMessage.TunnelId
 	bytesMessage.ConnectionId = ctrlMessage.ConnectionId
 
@@ -128,13 +131,14 @@ func (c *gClient) receiveClientControlMessages() {
 				// Send a message through the new stream
 				// to let the server know the ID specifics
 				tMsg := new(cs.TunnelControlMessage)
-				tMsg.EndpointId = message.EndpointId
 				tMsg.TunnelId = message.TunnelId
 				tStream.Send(tMsg)
 
 				c.endpoint.AddTunnel(message.TunnelId, newTunnel)
 				newTunnel.Start()
 
+			} else if operation == common.EndpointCtrlDeleteTunnel {
+				c.endpoint.StopAndDeleteTunnel(message.TunnelId)
 			} else if operation == common.EndpointCtrlSocksProxy {
 				message.Operation = common.EndpointCtrlSocksProxyAck
 				message.ErrorStatus = 0
@@ -167,6 +171,8 @@ func main() {
 	var err error
 	var cancel context.CancelFunc
 
+	uniqueID := ksuid.New().String()
+
 	config := &tls.Config{
 		InsecureSkipVerify: true,
 	}
@@ -181,7 +187,7 @@ func main() {
 
 	var opts []grpc.DialOption
 	opts = append(opts, grpc.WithTransportCredentials(credentials.NewTLS(config)),
-		grpc.WithPerRPCCredentials(common.NewToken(clientToken)))
+		grpc.WithPerRPCCredentials(common.NewToken(clientToken+"-"+uniqueID)))
 
 	gClient := new(gClient)
 	gClient.endpoint = common.NewEndpoint()
@@ -196,20 +202,20 @@ func main() {
 	}
 	defer conn.Close()
 
+	req := new(cs.GetConfigurationMessageRequest)
+
+	req.Hostname, _ = os.Hostname()
+
 	gClient.grpcClient = cs.NewClientServiceClient(conn)
 	gClient.gCtx, cancel = context.WithCancel(context.Background())
 	defer cancel()
 
-	req := new(cs.GetConfigurationMessageRequest)
-	configMsg, err := gClient.grpcClient.GetConfigurationMessage(gClient.gCtx, req)
+	_, err = gClient.grpcClient.GetConfigurationMessage(gClient.gCtx, req)
 	if err != nil {
 		return
 	}
 
-	gClient.endpoint.SetID(configMsg.EndpointId)
-
 	conMsg := new(cs.EndpointControlMessage)
-	conMsg.EndpointId = gClient.endpoint.Id
 	gClient.ctrlStream, err = gClient.grpcClient.CreateEndpointControlStream(gClient.gCtx, conMsg)
 
 	if err != nil {
