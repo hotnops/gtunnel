@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"strconv"
 
 	"github.com/hotnops/gTunnel/common"
 	as "github.com/hotnops/gTunnel/grpc/admin"
@@ -19,14 +20,15 @@ var commands = []string{
 	"clientlist",
 	"clientcreate",
 	"clientdisconnect",
-	"tunneladd",
+	"tunnelcreate",
 	"tunneldelete",
 	"tunnellist",
 	"connectionlist",
 	"socksstart",
 	"socksstop"}
 
-func printCommands() {
+func printCommands(progName string) {
+	fmt.Printf("[*] Usage: %s <gTunServerIP> <gTunSergerPort> command\n", progName)
 	fmt.Printf("[*] Available commands: \n")
 
 	for _, command := range commands {
@@ -84,21 +86,21 @@ func clientCreate(ctx context.Context,
 	clientCreateCmd := flag.NewFlagSet(commands[1], flag.ExitOnError)
 	clientPlatform := clientCreateCmd.String("platform", "win",
 		"The operating system platform")
-	serverAddress := clientCreateCmd.String("serverAddress", "",
+	serverIP := clientCreateCmd.String("ip", "",
 		"Address to which the client will connect.")
-	serverPort := clientCreateCmd.Int("serverPort", 0,
+	serverPort := clientCreateCmd.Int("port", 0,
 		"The port to which the client will connect")
-	clientID := clientCreateCmd.String("clientID", "",
+	name := clientCreateCmd.String("name", "",
 		"The unique ID for the generated client. Can be a friendly name")
-	outputFile := clientCreateCmd.String("outputFile", "",
+	outputFile := clientCreateCmd.String("outputfile", "",
 		"The output file where the client binary will be written")
 
 	clientCreateCmd.Parse(args)
 
-	ip := net.ParseIP(*serverAddress)
+	ip := net.ParseIP(*serverIP)
 
 	clientCreateReq := new(as.ClientCreateRequest)
-	clientCreateReq.ClientId = *clientID
+	clientCreateReq.ClientId = *name
 	clientCreateReq.IpAddress = common.IpToInt32(ip)
 	clientCreateReq.Port = uint32(*serverPort)
 	clientCreateReq.Platform = *clientPlatform
@@ -206,9 +208,9 @@ func tunnelDelete(ctx context.Context,
 	args []string) {
 
 	tunnelDeleteCmd := flag.NewFlagSet(commands[4], flag.ExitOnError)
-	clientID := tunnelDeleteCmd.String("clientID", "",
+	clientID := tunnelDeleteCmd.String("clientid", "",
 		"The ID of the client that has the tunnel to be deleted")
-	tunnelID := tunnelDeleteCmd.String("tunnelID", "",
+	tunnelID := tunnelDeleteCmd.String("tunnelid", "",
 		"The ID of the tunnel to delete")
 
 	tunnelDeleteCmd.Parse(args)
@@ -230,7 +232,7 @@ func tunnelList(ctx context.Context,
 	args []string) {
 
 	tunnelListCmd := flag.NewFlagSet(commands[5], flag.ExitOnError)
-	clientID := tunnelListCmd.String("clientID", "",
+	clientID := tunnelListCmd.String("clientid", "",
 		"Tunnels will be listed for this client ID")
 
 	tunnelListCmd.Parse(args)
@@ -289,9 +291,9 @@ func connectionList(ctx context.Context,
 	args []string) {
 
 	connectionListCmd := flag.NewFlagSet(commands[6], flag.ExitOnError)
-	clientID := connectionListCmd.String("clientID", "",
+	clientID := connectionListCmd.String("clientid", "",
 		"The client for which connections will be listed")
-	tunnelID := connectionListCmd.String("tunnelID", "",
+	tunnelID := connectionListCmd.String("tunnelid", "",
 		"The tunnel for which connections will be listed")
 
 	connectionListCmd.Parse(args)
@@ -377,7 +379,18 @@ func main() {
 		socksStopCmd := flag.NewFlagSet(commands[7], flag.ExitOnError)
 	*/
 
-	adminClient, err := connect("127.0.0.1", 1337)
+	if len(os.Args) < 4 {
+		printCommands(os.Args[0])
+		return
+	}
+	ipAddr := os.Args[1]
+	port, err := strconv.Atoi(os.Args[2])
+
+	if err != nil {
+		log.Fatalf("[!] Cannot convert %s to port\n", os.Args[2])
+	}
+
+	adminClient, err := connect(ipAddr, uint32(port))
 
 	if err != nil {
 		log.Fatalf("[!] Failed to connect to server: %s", err)
@@ -385,53 +398,28 @@ func main() {
 
 	ctx, _ := context.WithCancel(context.Background())
 
-	if len(os.Args) == 1 {
-		printCommands()
-		return
-	}
-
-	switch os.Args[1] {
+	switch os.Args[3] {
 	case commands[0]:
 		clientList(ctx, adminClient)
 	// List out all the configured clients and their connection status
 	case commands[1]:
-		clientCreate(ctx, adminClient, os.Args[2:])
+		clientCreate(ctx, adminClient, os.Args[4:])
 	case commands[2]:
-		clientDisconnect(ctx, adminClient, os.Args[2:])
+		clientDisconnect(ctx, adminClient, os.Args[4:])
 	case commands[3]:
-		tunnelAdd(ctx, adminClient, os.Args[2:])
+		tunnelAdd(ctx, adminClient, os.Args[4:])
 	case commands[4]:
-		tunnelDelete(ctx, adminClient, os.Args[2:])
+		tunnelDelete(ctx, adminClient, os.Args[4:])
 	case commands[5]:
-		tunnelList(ctx, adminClient, os.Args[2:])
+		tunnelList(ctx, adminClient, os.Args[4:])
 	case commands[6]:
-		connectionList(ctx, adminClient, os.Args[2:])
+		connectionList(ctx, adminClient, os.Args[4:])
 	case commands[7]:
-		socksStart(ctx, adminClient, os.Args[2:])
+		socksStart(ctx, adminClient, os.Args[4:])
 	case commands[8]:
-		socksStop(ctx, adminClient, os.Args[2:])
-		/*
-
-
-			case commands[5]:
-				// connectionlist
-				clientID := connectionListCmd.String("clientID", "",
-					"The ID of the client")
-				tunnelID := connectionListCmd.String("tunnelID", "",
-					"The ID of the tunnel")
-
-				connectionListCmd.Parse(os.Args[2:])
-
-			case commands[6]:
-				// socksstart
-
-
-			case commands[7]:
-				// socksstop
-				clientID := socksStopCmd.String("clientID", "",
-					"The ID of the client")
-				socksStopCmd.Parse(os.Args[2:])
-		*/
+		socksStop(ctx, adminClient, os.Args[4:])
+	default:
+		log.Printf("[*] Command: %s not recognized\n", os.Args[3])
 	}
 
 }
