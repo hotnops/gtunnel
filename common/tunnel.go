@@ -2,7 +2,6 @@ package common
 
 import (
 	"fmt"
-	"log"
 	"net"
 	"sync"
 
@@ -216,9 +215,7 @@ func (t *Tunnel) handleIngressCtrlMessages() {
 					// If this is client side, we need to still create the byte stream
 					conn := t.GetConnection(ctrlMessage.ConnectionId)
 
-					if conn == nil {
-						log.Printf("[!] Failed to get connection id: %d\n", ctrlMessage.ConnectionId)
-					} else {
+					if conn != nil {
 						// Waiting until the byte stream gets set up
 						conn.SetStream(t.ConnectionHandler.Acknowledge(t, ctrlMessage))
 						if ok {

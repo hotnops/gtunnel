@@ -88,12 +88,17 @@ func clientCreate(ctx context.Context,
 		"The operating system platform")
 	serverIP := clientCreateCmd.String("ip", "",
 		"Address to which the client will connect.")
-	serverPort := clientCreateCmd.Int("port", 0,
+	serverPort := clientCreateCmd.Int("port", 443,
 		"The port to which the client will connect")
 	name := clientCreateCmd.String("name", "",
 		"The unique ID for the generated client. Can be a friendly name")
 	outputFile := clientCreateCmd.String("outputfile", "",
 		"The output file where the client binary will be written")
+	binType := clientCreateCmd.String("bintype", "exe",
+		"The type of output file. Options are exe or dll. Exe works on linux.")
+
+	arch := clientCreateCmd.String("arch", "x64",
+		"The architecture of the binary. Options are x64 or x64")
 
 	clientCreateCmd.Parse(args)
 
@@ -104,8 +109,9 @@ func clientCreate(ctx context.Context,
 	clientCreateReq.IpAddress = common.IpToInt32(ip)
 	clientCreateReq.Port = uint32(*serverPort)
 	clientCreateReq.Platform = *clientPlatform
-	// exeType is ignored for now
-	clientCreateReq.ExeType = "ignored"
+	clientCreateReq.BinType = *binType
+	clientCreateReq.Arch = *arch
+
 	stream, err := adminClient.ClientCreate(ctx, clientCreateReq)
 	if err != nil {
 		log.Fatalf("[!] ClientCreate failed: %s", err)

@@ -5,8 +5,10 @@ WORKDIR /go/src/gTunnel
 RUN mkdir /output
 
 RUN apt update && apt install -y \
-	unzip && \
-	openssl
+	unzip \
+	openssl \
+    gcc-mingw-w64-i686 \
+    gcc-mingw-w64-x86-64
 
 COPY grpc/ grpc/.
 COPY build/build_protoc.sh .

@@ -57,7 +57,8 @@ message ClientCreateRequest {
   uint32 ip_address = 2;
   uint32 port = 3;
   string platform = 4;
-  string exe_type = 5;
+  string bin_type = 5;
+  string arch = 6;
 }
 
 message ClientDisconnectRequest {

@@ -28,7 +28,7 @@ func GenerateToken() (string, error) {
 
 	tokenSize.Add(tokenSize, min)
 
-	var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()=_+[]{};,.<>/?")
+	var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$%^&*()=_+[]{};,.<>/?")
 
 	b := make([]rune, tokenSize.Int64())
 	for i := range b {

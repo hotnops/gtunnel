@@ -1,5 +1,7 @@
 package main
 
+import "C"
+
 import (
 	"context"
 	"crypto/tls"
@@ -166,7 +168,11 @@ func (c *gClient) receiveClientControlMessages() {
 	}
 }
 
-// Where the magic happens
+//export ExportMain
+func ExportMain() {
+	main()
+}
+
 func main() {
 	var err error
 	var cancel context.CancelFunc

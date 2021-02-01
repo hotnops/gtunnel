@@ -42,7 +42,9 @@ func (s *AdminServiceServer) ClientCreate(req *as.ClientCreateRequest,
 		req.Platform,
 		ip.To4().String(),
 		uint16(req.Port),
-		req.ClientId)
+		req.ClientId,
+		req.BinType,
+		req.Arch)
 
 	if err != nil {
 		return err
