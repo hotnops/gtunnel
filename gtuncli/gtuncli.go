@@ -100,6 +100,8 @@ func clientCreate(ctx context.Context,
 	arch := clientCreateCmd.String("arch", "x64",
 		"The architecture of the binary. Options are x64 or x64")
 
+	proxyServer := clientCreateCmd.String("proxy", "", "A proxy server that the client will call through. Empty by default")
+
 	clientCreateCmd.Parse(args)
 
 	ip := net.ParseIP(*serverIP)
@@ -111,6 +113,7 @@ func clientCreate(ctx context.Context,
 	clientCreateReq.Platform = *clientPlatform
 	clientCreateReq.BinType = *binType
 	clientCreateReq.Arch = *arch
+	clientCreateReq.ProxyServer = *proxyServer
 
 	stream, err := adminClient.ClientCreate(ctx, clientCreateReq)
 	if err != nil {
