@@ -37,7 +37,9 @@ func NewConfigStore() *ConfigStore {
 	return configStore
 }
 
-func (c *ConfigStore) AddConfiguredClient(key string, client *ConfiguredClient) error {
+// AddConfiguredClient will take a ConfiguredClient structure and
+// add it to the redis datastore
+func (c *ConfigStore) AddConfiguredClient(client *ConfiguredClient) error {
 
 	clientJSON, err := json.Marshal(client)
 
@@ -50,13 +52,13 @@ func (c *ConfigStore) AddConfiguredClient(key string, client *ConfiguredClient) 
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 
-	err = c.redisClient.Set(c.context, key, clientJSON, 0).Err()
+	err = c.redisClient.Set(c.context, client.Token, clientJSON, 0).Err()
 	if err != nil {
 		log.Printf("[!] Failed to insert configured client into redis database")
 		return err
 	}
 
-	c.configuredClients[key] = client
+	c.configuredClients[client.Token] = client
 
 	return nil
 }

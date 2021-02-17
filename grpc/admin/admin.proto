@@ -12,7 +12,7 @@ package admin;
 service AdminService {
 
   // Generates a configred gClient executable
-  rpc ClientCreate(ClientCreateRequest) returns (stream ByteStream) {}
+  rpc ClientRegister(ClientRegisterRequest) returns (ClientRegisterResponse) {}
 
   // Disconnects a client from the server
   rpc ClientDisconnect(ClientDisconnectRequest) returns (ClientDisconnectResponse) {}
@@ -52,14 +52,19 @@ message Client {
     string hostname = 6;
 }
 
-message ClientCreateRequest {
+message ClientRegisterRequest {
   string client_id = 1;
-  uint32 ip_address = 2;
-  uint32 port = 3;
-  string platform = 4;
-  string bin_type = 5;
-  string arch = 6;
-  string proxyServer = 7;
+  string token = 2;
+  uint32 ip_address = 3;
+  uint32 port = 4;
+  string platform = 5;
+  string bin_type = 6;
+  string arch = 7;
+  string proxyServer = 8;
+}
+
+message ClientRegisterResponse {
+    string error = 1;
 }
 
 message ClientDisconnectRequest {

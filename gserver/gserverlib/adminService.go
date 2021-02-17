@@ -3,10 +3,8 @@ package gserverlib
 import (
 	"context"
 	"fmt"
-	"io"
 	"log"
 	"net"
-	"os"
 
 	"github.com/hotnops/gTunnel/common"
 	as "github.com/hotnops/gTunnel/grpc/admin"
@@ -31,50 +29,27 @@ func NewAdminServiceServer(gServer *GServer) *AdminServiceServer {
 	return adminServer
 }
 
-// ClientCreate will create a gClient binary and send it back in a binary stream.
-func (s *AdminServiceServer) ClientCreate(req *as.ClientCreateRequest,
-	stream as.AdminService_ClientCreateServer) error {
-	log.Printf("[*] ClientCreate called")
+// ClientRegister will create a gClient binary and send it back in a binary stream.
+func (s *AdminServiceServer) ClientRegister(ctx context.Context, req *as.ClientRegisterRequest) (
+	*as.ClientRegisterResponse, error) {
+	log.Printf("[*] ClientRegister called")
 
 	ip := common.Int32ToIP(req.IpAddress)
 
-	filePath, err := s.gServer.GenerateClient(
-		req.Platform,
-		ip.To4().String(),
-		uint16(req.Port),
-		req.ClientId,
-		req.BinType,
-		req.Arch,
-		req.ProxyServer)
+	configuredClient := new(ConfiguredClient)
+	configuredClient.Arch = req.Arch
+	configuredClient.Name = req.ClientId
+	configuredClient.Port = req.Port
+	configuredClient.Server = ip.String()
+	configuredClient.Token = req.Token
+	configuredClient.BinType = req.BinType
+	configuredClient.Platform = req.Platform
+	configuredClient.Proxy = req.ProxyServer
 
-	if err != nil {
-		return err
-	}
+	err := s.gServer.RegisterClient(configuredClient)
+	resp := new(as.ClientRegisterResponse)
 
-	f, err := os.Open(filePath)
-	if err != nil {
-		return fmt.Errorf("failed to open generated client")
-	}
-	defer f.Close()
-
-	for {
-		data := make([]byte, 4096)
-		bytesRead, err := f.Read(data)
-		if err == io.EOF {
-			break
-		} else if err != nil {
-			return fmt.Errorf("error reading file")
-		} else {
-			if bytesRead != 4096 {
-				data = data[0:bytesRead]
-			}
-			bs := new(as.ByteStream)
-			bs.Data = data
-			stream.Send(bs)
-		}
-	}
-
-	return nil
+	return resp, err
 }
 
 // ClientDisconnect will disconnect a gClient from gServer.

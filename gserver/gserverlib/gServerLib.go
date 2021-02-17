@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"os"
-	"os/exec"
 	"time"
 
 	"github.com/hotnops/gTunnel/common"
@@ -16,14 +14,6 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-const (
-	bearerString = "Bearer "
-	// MaxTokenSize is the maximum number of characters for a bearer token
-	MaxTokenSize = 48
-	// MinTokenSize is the minimum number of characters for a bearer token
-	MinTokenSize = 32
-)
-
 type contextKey string
 
 func (c contextKey) String() string {
@@ -31,11 +21,14 @@ func (c contextKey) String() string {
 }
 
 type ConfiguredClient struct {
-	Arch   string
-	Name   string
-	Port   uint32
-	Server string
-	Token  string
+	Arch     string
+	BinType  string
+	Name     string
+	Platform string
+	Port     uint32
+	Proxy    string
+	Server   string
+	Token    string
 }
 
 type ConnectedClient struct {
@@ -233,7 +226,7 @@ func (s *GServer) AddTunnel(
 
 	if direction == common.TunnelDirectionForward {
 
-		if !newTunnel.AddListener(int32(listenPort), clientID) {
+		if !newTunnel.AddListener(clientID) {
 			log.Printf("Failed to start listener. Returning")
 			return fmt.Errorf("failed to listen on port: %d", listenPort)
 		}
@@ -255,7 +248,7 @@ func (s *GServer) DeleteTunnel(
 	client, ok := s.connectedClients[clientID]
 
 	if !ok {
-		log.Printf("[!] client with uuuid: %s does not exist\n")
+		log.Printf("[!] client with uuuid: %s does not exist\n", clientID)
 		return fmt.Errorf("deletetunnel failed - client does not exist")
 	}
 
@@ -282,7 +275,7 @@ func (s *GServer) DisconnectEndpoint(
 	client, ok := s.connectedClients[clientID]
 
 	if !ok {
-		log.Printf("[!] client with uuuid: %s does not exist\n")
+		log.Printf("[!] client with uuuid: %s does not exist\n", clientID)
 		return fmt.Errorf("disconnectendpoint failed - client does not exist")
 	}
 
@@ -293,91 +286,18 @@ func (s *GServer) DisconnectEndpoint(
 	return nil
 }
 
-// GenerateClient is responsible for building
+// RegisterClient is responsible for building
 // a client executable with the provided parameters.
-func (s *GServer) GenerateClient(
-	platform string,
-	serverAddress string,
-	serverPort uint16,
-	clientID string,
-	binType string,
-	arch string,
-	proxyServer string) (string, error) {
+func (s *GServer) RegisterClient(req *ConfiguredClient) error {
 
-	if clientID == "" {
-		clientID = common.GenerateString(8)
-	}
+	err := s.configStore.AddConfiguredClient(req)
 
-	configuredClient := new(ConfiguredClient)
-
-	token, err := GenerateToken()
-	if err != nil {
-		log.Printf("[!] Failed to generate token, I guess?")
-		return "", err
-	}
-
-	configuredClient.Arch = platform
-	configuredClient.Server = serverAddress
-	configuredClient.Port = uint32(serverPort)
-	configuredClient.Name = clientID
-	configuredClient.Token = token
-
-	s.configStore.AddConfiguredClient(token, configuredClient)
-
-	outputPath := fmt.Sprintf("configured/%s", clientID)
-
-	/*if platform == "win" {
-		exec.Command("set GOOS=windows")
-		exec.Command("set GOARCH=386")
-		outputPath = fmt.Sprintf("configured/%s.exe", clientID)
-	} else if platform == "mac" {
-		exec.Command("set GOOS=darwin")
-		exec.Command("set GOARCH=amd64")
-	} else if platform == "linux" {
-		exec.Command("set GOOS=linux")
-	} else {
-		log.Printf("[!] Invalid platform specified")
-	}*/
-
-	flagString := fmt.Sprintf("-s -w -X main.clientToken=%s -X main.serverAddress=%s -X main.serverPort=%d -X main.httpsProxyServer=%s", token, serverAddress, serverPort, proxyServer)
-	var commands []string
-
-	commands = append(commands, "build")
-
-	if binType == "lib" {
-		commands = append(commands, "-buildmode=c-shared")
-	}
-
-	commands = append(commands, "-ldflags", flagString, "-o", outputPath, "gclient/gClient.go")
-
-	cmd := exec.Command("go", commands...)
-	cmd.Env = os.Environ()
-	cmd.Env = append(cmd.Env, "CGO_ENABLED=1")
-	if platform == "win" {
-		cmd.Env = append(cmd.Env, "GOOS=windows")
-		if arch == "x86" {
-			cmd.Env = append(cmd.Env, "CC=i686-w64-mingw32-gcc")
-			cmd.Env = append(cmd.Env, "GOARCH=386")
-		} else if arch == "x64" {
-			cmd.Env = append(cmd.Env, "CC=x86_64-w64-mingw32-gcc")
-			cmd.Env = append(cmd.Env, "GOARCH=amd64")
-		}
-	} else if platform == "linux" {
-		cmd.Env = append(cmd.Env, "GOOS=linux")
-		if arch == "x86" {
-			cmd.Env = append(cmd.Env, "GOARCH=386")
-		} else if arch == "x64" {
-			cmd.Env = append(cmd.Env, "GOARCH=amd64")
-		}
-	}
-	log.Printf("[*] Build cmd: %s\n", cmd.String())
-	err = cmd.Run()
 	if err != nil {
 		log.Printf("[!] Failed to generate client: %s", err)
-		s.configStore.DeleteConfiguredClient(token)
-		return "", err
+		s.configStore.DeleteConfiguredClient(req.Token)
+		return err
 	}
-	return outputPath, nil
+	return nil
 }
 
 // GetClientServer gets the grpc client server
@@ -390,7 +310,7 @@ func (s *GServer) GetEndpoint(clientID string) (*common.Endpoint, bool) {
 	client, ok := s.connectedClients[clientID]
 
 	if !ok {
-		log.Printf("[!] client with uuuid: %s does not exist\n")
+		log.Printf("[!] client with uuuid: %s does not exist\n", clientID)
 		return nil, ok
 	}
 
@@ -417,7 +337,7 @@ func (s *GServer) StartProxy(
 	client, ok := s.connectedClients[clientID]
 
 	if !ok {
-		log.Printf("[!] client with uuuid: %s does not exist\n")
+		log.Printf("[!] client with uuuid: %s does not exist\n", clientID)
 		return fmt.Errorf("startproxy failed - client does not exist")
 	}
 
@@ -438,7 +358,7 @@ func (s *GServer) StopProxy(
 	client, ok := s.connectedClients[clientID]
 
 	if !ok {
-		log.Printf("[!] client with uuuid: %s does not exist\n")
+		log.Printf("[!] client with uuuid: %s does not exist\n", clientID)
 		return fmt.Errorf("stopproxy failed - client does not exist")
 	}
 

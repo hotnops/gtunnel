@@ -108,6 +108,7 @@ func (c *gClient) receiveClientControlMessages() {
 				} else {
 					direction = common.TunnelDirectionReverse
 				}
+
 				newTunnel := common.NewTunnel(message.TunnelId,
 					uint32(direction),
 					common.Int32ToIP(message.ListenIp),
@@ -120,7 +121,7 @@ func (c *gClient) receiveClientControlMessages() {
 				f.gCtx = c.gCtx
 
 				if direction == common.TunnelDirectionReverse {
-					newTunnel.AddListener(int32(message.ListenPort), c.endpoint.Id)
+					newTunnel.AddListener(c.endpoint.Id)
 				}
 
 				tStream, _ := c.grpcClient.CreateTunnelControlStream(c.gCtx)

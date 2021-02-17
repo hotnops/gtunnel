@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"net"
 	"os"
@@ -16,9 +18,21 @@ import (
 	"google.golang.org/grpc"
 )
 
+// ServerHost constant is the env variable
+// used to configure the host for the gtunnel server
+const ServerHost = "GTUNNEL_HOST"
+
+// ServerPort constant is the env variable
+// used to configure the port for the gtunnel server
+const ServerPort = "GTUNNEL_PORT"
+
+// ConfigFileName is the filename in which
+// configuration parameters will be read
+const ConfigFileName = ".gtunnel.conf"
+
 var commands = []string{
 	"clientlist",
-	"clientcreate",
+	"clientregister",
 	"clientdisconnect",
 	"tunnelcreate",
 	"tunneldelete",
@@ -80,11 +94,11 @@ func clientList(ctx context.Context, adminClient as.AdminServiceClient) {
 	table.Render()
 }
 
-func clientCreate(ctx context.Context,
+func clientRegister(ctx context.Context,
 	adminClient as.AdminServiceClient,
 	args []string) {
 	clientCreateCmd := flag.NewFlagSet(commands[1], flag.ExitOnError)
-	clientPlatform := clientCreateCmd.String("platform", "win",
+	clientPlatform := clientCreateCmd.String("platform", "",
 		"The operating system platform")
 	serverIP := clientCreateCmd.String("ip", "",
 		"Address to which the client will connect.")
@@ -92,21 +106,41 @@ func clientCreate(ctx context.Context,
 		"The port to which the client will connect")
 	name := clientCreateCmd.String("name", "",
 		"The unique ID for the generated client. Can be a friendly name")
-	outputFile := clientCreateCmd.String("outputfile", "",
-		"The output file where the client binary will be written")
-	binType := clientCreateCmd.String("bintype", "exe",
+	token := clientCreateCmd.String("token", "", "The token used for authentication")
+	binType := clientCreateCmd.String("bintype", "",
 		"The type of output file. Options are exe or dll. Exe works on linux.")
 
-	arch := clientCreateCmd.String("arch", "x64",
+	arch := clientCreateCmd.String("arch", "",
 		"The architecture of the binary. Options are x64 or x64")
 
 	proxyServer := clientCreateCmd.String("proxy", "", "A proxy server that the client will call through. Empty by default")
 
 	clientCreateCmd.Parse(args)
 
+	if *clientPlatform == "" {
+		fmt.Println("[!] clientregister failed: platform required")
+		return
+	}
+	if *serverIP == "" {
+		fmt.Println("[!] clientregister failed: ip required")
+		return
+	}
+	if *name == "" {
+		fmt.Println("[!] clientregister failed: name required")
+		return
+	}
+	if *token == "" {
+		fmt.Println("[!] clientregister failed: token required")
+		return
+	}
+	if *arch == "" {
+		fmt.Println("[!] clientregister failed: arch required")
+		return
+	}
+
 	ip := net.ParseIP(*serverIP)
 
-	clientCreateReq := new(as.ClientCreateRequest)
+	clientCreateReq := new(as.ClientRegisterRequest)
 	clientCreateReq.ClientId = *name
 	clientCreateReq.IpAddress = common.IpToInt32(ip)
 	clientCreateReq.Port = uint32(*serverPort)
@@ -114,29 +148,17 @@ func clientCreate(ctx context.Context,
 	clientCreateReq.BinType = *binType
 	clientCreateReq.Arch = *arch
 	clientCreateReq.ProxyServer = *proxyServer
+	clientCreateReq.Token = *token
 
-	stream, err := adminClient.ClientCreate(ctx, clientCreateReq)
-	if err != nil {
-		log.Fatalf("[!] ClientCreate failed: %s", err)
-	}
-
-	file, err := os.OpenFile(*outputFile, os.O_CREATE|os.O_RDWR, 0755)
-	defer file.Close()
+	resp, err := adminClient.ClientRegister(ctx, clientCreateReq)
 
 	if err != nil {
-		log.Fatalf("[!] Create file failed: %s", err)
+		fmt.Printf("[!] ClientRegister failed: %s\n", err.Error())
+	}
+	if resp.Error != "" {
+		fmt.Printf("[!] ClientRegister returned an error: %s\n", err.Error())
 	}
 
-	for {
-		bytes, err := stream.Recv()
-		if err == io.EOF {
-			break
-		} else if err != nil {
-			log.Fatalf("[!] Error receiving file: %s", err)
-		} else {
-			file.Write(bytes.Data)
-		}
-	}
 }
 
 func clientDisconnect(ctx context.Context,
@@ -377,29 +399,68 @@ func socksStop(ctx context.Context,
 	}
 }
 
+func loadConfiguration(hostname *string, port *int) {
+	var configData map[string]interface{}
+
+	data, err := ioutil.ReadFile(ConfigFileName)
+	if err != nil {
+		log.Printf("[*] No configuration file found. Using environment variables")
+		return
+	}
+
+	err = json.Unmarshal([]byte(data), &configData)
+
+	if err != nil {
+		log.Printf("[!] Failed to desrialize configuration file")
+		os.Exit(1)
+	}
+
+	if val, ok := configData["host"]; ok {
+		*hostname = val.(string)
+	}
+
+	if val, ok := configData["port"]; ok {
+		*port = int(val.(float64))
+	}
+}
+
 func main() {
 
 	/*
-
-
-
 		connectionListCmd := flag.NewFlagSet(commands[5], flag.ExitOnError)
 
 		socksStopCmd := flag.NewFlagSet(commands[7], flag.ExitOnError)
 	*/
 
-	if len(os.Args) < 4 {
-		printCommands(os.Args[0])
-		return
-	}
-	ipAddr := os.Args[1]
-	port, err := strconv.Atoi(os.Args[2])
+	host := ""
+	port := 0
 
-	if err != nil {
-		log.Fatalf("[!] Cannot convert %s to port\n", os.Args[2])
+	loadConfiguration(&host, &port)
+
+	// Environment variables override configuration file
+	if os.Getenv(ServerHost) != "" {
+		host = os.Getenv(ServerHost)
+	}
+	if os.Getenv(ServerPort) != "" {
+		var err error
+		port, err = strconv.Atoi(os.Getenv(ServerPort))
+		if err != nil {
+			fmt.Println("[!] Invalid port specified.")
+			os.Exit(1)
+		}
 	}
 
-	adminClient, err := connect(ipAddr, uint32(port))
+	if host == "" {
+		fmt.Println("[!] No server host specified.")
+		os.Exit(1)
+	}
+
+	if port == 0 {
+		fmt.Println("[*] Defaulting port to 1337")
+		port = 1337
+	}
+
+	adminClient, err := connect(host, uint32(port))
 
 	if err != nil {
 		log.Fatalf("[!] Failed to connect to server: %s", err)
@@ -407,28 +468,28 @@ func main() {
 
 	ctx, _ := context.WithCancel(context.Background())
 
-	switch os.Args[3] {
+	switch os.Args[1] {
 	case commands[0]:
 		clientList(ctx, adminClient)
 	// List out all the configured clients and their connection status
 	case commands[1]:
-		clientCreate(ctx, adminClient, os.Args[4:])
+		clientRegister(ctx, adminClient, os.Args[2:])
 	case commands[2]:
-		clientDisconnect(ctx, adminClient, os.Args[4:])
+		clientDisconnect(ctx, adminClient, os.Args[2:])
 	case commands[3]:
-		tunnelAdd(ctx, adminClient, os.Args[4:])
+		tunnelAdd(ctx, adminClient, os.Args[2:])
 	case commands[4]:
-		tunnelDelete(ctx, adminClient, os.Args[4:])
+		tunnelDelete(ctx, adminClient, os.Args[2:])
 	case commands[5]:
-		tunnelList(ctx, adminClient, os.Args[4:])
+		tunnelList(ctx, adminClient, os.Args[2:])
 	case commands[6]:
-		connectionList(ctx, adminClient, os.Args[4:])
+		connectionList(ctx, adminClient, os.Args[2:])
 	case commands[7]:
-		socksStart(ctx, adminClient, os.Args[4:])
+		socksStart(ctx, adminClient, os.Args[2:])
 	case commands[8]:
-		socksStop(ctx, adminClient, os.Args[4:])
+		socksStop(ctx, adminClient, os.Args[2:])
 	default:
-		log.Printf("[*] Command: %s not recognized\n", os.Args[3])
+		log.Printf("[*] Command: %s not recognized\n", os.Args[1])
 	}
 
 }

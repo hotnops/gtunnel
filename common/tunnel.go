@@ -64,9 +64,9 @@ func (t *Tunnel) AddConnection(c *Connection) {
 
 // AddListener will start a tcp listener on a specific port and forward
 // all accepted TCP connections to the associated tunnel.
-func (t *Tunnel) AddListener(listenPort int32, clientID string) bool {
+func (t *Tunnel) AddListener(clientID string) bool {
 
-	addr, _ := net.ResolveTCPAddr("tcp", fmt.Sprintf("0.0.0.0:%d", listenPort))
+	addr, _ := net.ResolveTCPAddr("tcp", fmt.Sprintf("%s:%d", t.listenIP, t.listenPort))
 	ln, err := net.ListenTCP("tcp", addr)
 	if err != nil {
 		return false
