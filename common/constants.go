@@ -11,12 +11,18 @@ const (
 )
 
 const (
+	TunnelDirectionForward = iota
+	TunnelDirectionReverse
+)
+
+const (
 	TunnelCtrlConnect = iota
 	TunnelCtrlAck
 	TunnelCtrlDisconnect
 )
 
 const (
-	ConnectionStatusConnected = iota
+	ConnectionStatusCreated = iota
+	ConnectionStatusConnected
 	ConnectionStatusClosed
 )

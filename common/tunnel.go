@@ -2,58 +2,120 @@ package common
 
 import (
 	"fmt"
-	pb "gTunnel/gTunnel"
 	"net"
+	"sync"
+
+	cs "github.com/hotnops/gTunnel/grpc/client"
+	"github.com/segmentio/ksuid"
 )
 
 type ConnectionStreamHandler interface {
-	GetByteStream(ctrlMessage *pb.TunnelControlMessage) ByteStream
-	CloseStream(connId int32)
-	Acknowledge(ctrlMessage *pb.TunnelControlMessage) ByteStream
+	GetByteStream(tunnel *Tunnel, ctrlMessage *cs.TunnelControlMessage) ByteStream
+	CloseStream(tunnel *Tunnel, connID string)
+	Acknowledge(tunnel *Tunnel, ctrlMessage *cs.TunnelControlMessage) ByteStream
 }
 
 type Tunnel struct {
 	id                string
-	localPort         uint32
-	localIP           uint32
-	remotePort        uint32
-	remoteIP          uint32
-	connections       map[int32]*Connection
-	listeners         []net.Listener
+	direction         uint32
+	listenIP          net.IP
+	listenPort        uint32
+	destinationIP     net.IP
+	destinationPort   uint32
+	connections       map[string]*Connection
+	listeners         []net.TCPListener
 	Kill              chan bool
 	ctrlStream        TunnelControlStream
-	connected         chan bool
-	connectionCount   int32
 	ConnectionHandler ConnectionStreamHandler
+	mutex             sync.Mutex
 }
 
-func NewTunnel(id string, localPort uint32, localIP uint32, remoteIP uint32, remotePort uint32) *Tunnel {
+// NewTunnel is a constructor for the tunnel struct. It takes
+// in id, direction, listenIP, lisetnPort, destinationIP, and
+// destinationPort as parameters.
+func NewTunnel(id string,
+	direction uint32,
+	listenIP net.IP,
+	listenPort uint32,
+	destinationIP net.IP,
+	destinationPort uint32) *Tunnel {
 	t := new(Tunnel)
 	t.id = id
-	t.localIP = localIP
-	t.localPort = localPort
-	t.remoteIP = remoteIP
-	t.remotePort = remotePort
-	t.connections = make(map[int32]*Connection)
+	t.direction = direction
+	t.listenIP = listenIP
+	t.listenPort = listenPort
+	t.destinationIP = destinationIP
+	t.destinationPort = destinationPort
+	t.connections = make(map[string]*Connection)
 	t.Kill = make(chan bool)
-	t.connected = make(chan bool)
-	t.listeners = make([]net.Listener, 0)
+	t.listeners = make([]net.TCPListener, 0)
 	return t
+}
+
+// Addconnection will generate an ID for the connection and
+// add it to the map.
+func (t *Tunnel) AddConnection(c *Connection) {
+	t.mutex.Lock()
+	defer t.mutex.Unlock()
+
+	c.ID = ksuid.New().String()
+	t.connections[c.ID] = c
+}
+
+// AddListener will start a tcp listener on a specific port and forward
+// all accepted TCP connections to the associated tunnel.
+func (t *Tunnel) AddListener(clientID string) bool {
+
+	addr, _ := net.ResolveTCPAddr("tcp", fmt.Sprintf("%s:%d", t.listenIP, t.listenPort))
+	ln, err := net.ListenTCP("tcp", addr)
+	if err != nil {
+		return false
+	}
+
+	t.listeners = append(t.listeners, *ln)
+
+	newConns := make(chan *net.TCPConn)
+
+	go func(l *net.TCPListener) {
+		for {
+			c, err := l.AcceptTCP()
+			if err == nil {
+				newConns <- c
+			} else {
+				return
+			}
+		}
+	}(ln)
+	go func() {
+		for {
+			select {
+			case conn := <-newConns:
+				gConn := NewConnection(*conn)
+				t.AddConnection(gConn)
+				newMessage := new(cs.TunnelControlMessage)
+				newMessage.Operation = TunnelCtrlConnect
+				newMessage.TunnelId = t.id
+				newMessage.ConnectionId = gConn.ID
+				t.ctrlStream.Send(newMessage)
+
+			case <-t.Kill:
+				return
+			}
+		}
+	}()
+	return true
 }
 
 // GetConnection will return a Connection object
 // with the given connection id
-func (t *Tunnel) GetConnection(connId int32) *Connection {
-	if conn, ok := t.connections[connId]; ok {
-		return conn
-	} else {
-		return nil
-	}
-}
+func (t *Tunnel) GetConnection(connID string) *Connection {
+	t.mutex.Lock()
+	defer t.mutex.Unlock()
 
-// GetConnections will return the connection map
-func (t *Tunnel) GetConnections() map[int32]*Connection {
-	return t.connections
+	if conn, ok := t.connections[connID]; ok {
+		return conn
+	}
+	return nil
 }
 
 // GetControlStream will return the control stream for
@@ -62,39 +124,43 @@ func (t *Tunnel) GetControlStream() TunnelControlStream {
 	return t.ctrlStream
 }
 
-// SetControlStream will set the provided control stream for
-// the associated tunnel
-func (t *Tunnel) SetControlStream(s TunnelControlStream) {
-	t.ctrlStream = s
+// GetDestinationIP gets the destination IP of the tunnel.
+func (t *Tunnel) GetDestinationIP() net.IP {
+	return t.destinationIP
 }
 
-// Start receiving control messages for the tunnel
-func (t *Tunnel) Start() {
-	// A thread for handling the established tcp connections
-	go t.handleIngressCtrlMessages()
-
+// GetDestinationPort gets the destination port of the tunnel.
+func (t *Tunnel) GetDestinationPort() uint32 {
+	return t.destinationPort
 }
 
-// Stop will stop all associated goroutines for the tunnel
-// and disconnect any associated TCP connections
-func (t *Tunnel) Stop() {
-	// First, stop all the listeners
-	for _, ln := range t.listeners {
-		ln.Close()
-	}
+// GetDirection gets the direction of the tunnel (forward or reverse)
+func (t *Tunnel) GetDirection() uint32 {
+	return t.direction
+}
 
-	// Close all existing tcp connections
-	for _, conn := range t.connections {
-		conn.Close()
-	}
-	// Lastly, signal that the tunnel stream should be killed
-	close(t.Kill)
+// GetListenIP gets the ip address that the tunnel is listening on.
+func (t *Tunnel) GetListenIP() net.IP {
+	return t.listenIP
+}
+
+// GetListenPort gets the port that the tunnel is listening on.
+func (t *Tunnel) GetListenPort() uint32 {
+	return t.listenPort
+}
+
+// GetConnections will return the connection map
+func (t *Tunnel) GetConnections() map[string]*Connection {
+	t.mutex.Lock()
+	defer t.mutex.Unlock()
+
+	return t.connections
 }
 
 // handleIngressCtrlMessages is the loop function responsible
 // for receiving control messages from the gRPC stream.
 func (t *Tunnel) handleIngressCtrlMessages() {
-	ingressMessages := make(chan *pb.TunnelControlMessage)
+	ingressMessages := make(chan *cs.TunnelControlMessage)
 	go func(s TunnelControlStream) {
 		for {
 			ingressMessage, err := t.ctrlStream.Recv()
@@ -118,39 +184,47 @@ func (t *Tunnel) handleIngressCtrlMessages() {
 			}
 			// handle control message
 			if ctrlMessage.Operation == TunnelCtrlConnect {
-				conn, err := net.Dial("tcp", fmt.Sprintf("%s:%d", Int32ToIP(t.remoteIP), t.remotePort))
+
+				rAddr, _ := net.ResolveTCPAddr("tcp", fmt.Sprintf("%s:%d",
+					t.destinationIP,
+					t.destinationPort))
+
+				conn, err := net.DialTCP("tcp", nil, rAddr)
+
 				if err != nil {
 					ctrlMessage.ErrorStatus = 1
 				} else {
 					var gConn *Connection
-					if gConn, ok = t.connections[ctrlMessage.ConnectionID]; !ok {
-						gConn = NewConnection(conn)
-						t.connections[ctrlMessage.ConnectionID] = gConn
+					if gConn, ok = t.connections[ctrlMessage.ConnectionId]; !ok {
+						gConn = NewConnection(*conn)
+						gConn.ID = ctrlMessage.ConnectionId
+						t.connections[ctrlMessage.ConnectionId] = gConn
 					}
-
-					stream := t.ConnectionHandler.GetByteStream(ctrlMessage)
+					stream := t.ConnectionHandler.GetByteStream(t, ctrlMessage)
 					gConn.SetStream(stream)
 					gConn.Start()
 
 				}
 
 			} else if ctrlMessage.Operation == TunnelCtrlAck {
-				//conn := t.connections[ctrlMessage.ConnectionID]
 				if ctrlMessage.ErrorStatus != 0 {
-					t.RemoveConnection(ctrlMessage.ConnectionID)
+					t.RemoveConnection(ctrlMessage.ConnectionId)
 				} else {
 					// Now that we know we are connected, we need to create a new byte
 					// stream and create a thread to service it
 					// If this is client side, we need to still create the byte stream
-					conn, ok := t.connections[ctrlMessage.ConnectionID]
-					// Waiting until the byte stream gets set up
-					conn.SetStream(t.ConnectionHandler.Acknowledge(ctrlMessage))
-					if ok {
-						conn.Start()
+					conn := t.GetConnection(ctrlMessage.ConnectionId)
+
+					if conn != nil {
+						// Waiting until the byte stream gets set up
+						conn.SetStream(t.ConnectionHandler.Acknowledge(t, ctrlMessage))
+						if ok {
+							conn.Start()
+						}
 					}
 				}
 			} else if ctrlMessage.Operation == TunnelCtrlDisconnect {
-				t.RemoveConnection(ctrlMessage.ConnectionID)
+				t.RemoveConnection(ctrlMessage.ConnectionId)
 			}
 		case <-t.Kill:
 			break
@@ -161,59 +235,43 @@ func (t *Tunnel) handleIngressCtrlMessages() {
 	}
 }
 
-// AddListener will start a tcp listener on a specific port and forward
-// all accepted TCP connections to the associated tunnel.
-func (t *Tunnel) AddListener(listenPort int32, endpointId string) bool {
-	ln, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", listenPort))
-	if err != nil {
-		return false
-	}
-
-	t.listeners = append(t.listeners, ln)
-
-	newConns := make(chan net.Conn)
-
-	go func(l net.Listener) {
-		for {
-			c, err := l.Accept()
-			if err == nil {
-				newConns <- c
-			} else {
-				return
-			}
-		}
-	}(ln)
-	go func() {
-		for {
-			select {
-			case conn := <-newConns:
-				gConn := NewConnection(conn)
-				t.AddConnection(gConn)
-				newMessage := new(pb.TunnelControlMessage)
-				newMessage.EndpointID = endpointId
-				newMessage.Operation = TunnelCtrlConnect
-				newMessage.TunnelID = t.id
-				newMessage.ConnectionID = gConn.Id
-				t.ctrlStream.Send(newMessage)
-
-			case <-t.Kill:
-				return
-			}
-		}
-	}()
-	return true
-}
-
-// Addconnection will generate an ID for the connection and
-// add it to the map.
-func (t *Tunnel) AddConnection(c *Connection) {
-	c.Id = t.connectionCount
-	t.connections[t.connectionCount] = c
-	t.connectionCount += 1
-}
-
 // RemoveConnection will remove the Connection object
 // from the connections map.
-func (t *Tunnel) RemoveConnection(connId int32) {
-	delete(t.connections, connId)
+func (t *Tunnel) RemoveConnection(connID string) {
+	t.mutex.Lock()
+	defer t.mutex.Unlock()
+
+	delete(t.connections, connID)
+}
+
+// SetControlStream will set the provided control stream for
+// the associated tunnel
+func (t *Tunnel) SetControlStream(s TunnelControlStream) {
+	t.ctrlStream = s
+}
+
+// Start receiving control messages for the tunnel
+func (t *Tunnel) Start() {
+	// A thread for handling the established tcp connections
+	go t.handleIngressCtrlMessages()
+
+}
+
+// Stop will stop all associated goroutines for the tunnel
+// and disconnect any associated TCP connections
+func (t *Tunnel) Stop() {
+	t.mutex.Lock()
+	defer t.mutex.Unlock()
+
+	// First, stop all the listeners
+	for _, ln := range t.listeners {
+		ln.Close()
+	}
+
+	// Close all existing tcp connections
+	for _, conn := range t.connections {
+		conn.Close()
+	}
+	// Lastly, signal that the tunnel stream should be killed
+	close(t.Kill)
 }

@@ -1,2 +1,10 @@
-docker build -f gServer/Dockerfile . -t gtunnel-server
-docker run -it --rm --net host -v $PWD/configured:/go/src/gTunnel/configured --name gtun-server gtunnel-server
+docker start gtunnel-server &> /dev/null
+
+if test $? -eq 0
+then
+    echo "[*] Server successfully started"
+else
+    echo "[!] Failed to start gtunnel server"
+fi
+
+

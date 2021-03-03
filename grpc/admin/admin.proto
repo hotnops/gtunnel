@@ -1,0 +1,128 @@
+syntax = "proto3";
+
+option java_multiple_files = true;
+option java_package = "gtunnel";
+option java_outer_classname = "GTunnel";
+
+package admin;
+
+/* The AdminService is used for performing administrative actions
+ * with gServer, such as adding tunnels, configuring clients, and
+ * listing out the state of gServer. */
+service AdminService {
+
+  // Generates a configred gClient executable
+  rpc ClientRegister(ClientRegisterRequest) returns (ClientRegisterResponse) {}
+
+  // Disconnects a client from the server
+  rpc ClientDisconnect(ClientDisconnectRequest) returns (ClientDisconnectResponse) {}
+
+  // Lists all connected gClients
+  rpc ClientList(ClientListRequest) returns (stream Client) {}
+
+  // List all connections for a tunnel
+  rpc ConnectionList(ConnectionListRequest) returns (stream Connection) {}
+
+  // Starts a SocksV5 server on a gClient
+  rpc SocksStart(SocksStartRequest) returns (SocksStartResponse) {}
+
+  // Stops a SocksV5 server on a gClient
+  rpc SocksStop(SocksStopRequest) returns (SocksStopResponse) {}
+
+  // Add a tunnel
+  rpc TunnelAdd(TunnelAddRequest) returns (TunnelAddResponse) {}
+
+  // Delete a tunnel
+  rpc TunnelDelete(TunnelDeleteRequest) returns (TunnelDeleteResponse) {}
+
+  // List all tunnels for an endppoint
+  rpc TunnelList(TunnelListRequest) returns (stream Tunnel) {}
+}
+
+message ByteStream {
+    bytes data = 1;
+}
+
+message Client {
+    string name = 1;
+    string client_id = 2;
+    uint32 status = 3;
+    string remote_address = 4;
+    string connect_date = 5;
+    string hostname = 6;
+}
+
+message ClientRegisterRequest {
+  string client_id = 1;
+  string token = 2;
+  uint32 ip_address = 3;
+  uint32 port = 4;
+  string platform = 5;
+  string bin_type = 6;
+  string arch = 7;
+  string proxyServer = 8;
+}
+
+message ClientRegisterResponse {
+    string error = 1;
+}
+
+message ClientDisconnectRequest {
+    string client_id = 1;
+}
+
+message ClientDisconnectResponse {}
+
+message ClientListRequest {}
+
+message Connection {
+    uint32 source_ip = 1;
+    uint32 source_port = 2;
+    uint32 destination_ip = 3;
+    uint32 destination_port = 4;
+}
+
+message ConnectionListRequest {
+    string client_id = 1;
+    string tunnel_id = 2;
+}
+
+message SocksStartRequest {
+    string client_id = 1;
+    uint32 socks_port = 2;
+}
+
+message SocksStartResponse {}
+
+message SocksStopRequest {
+    string client_id = 1;
+}
+
+message SocksStopResponse {}
+
+message Tunnel {
+    string id = 1;
+    uint32 direction = 2;
+    uint32 listen_ip = 3;
+    uint32 listen_port = 4;
+    uint32 destination_ip = 5;
+    uint32 destination_port = 6;
+}
+
+message TunnelAddRequest {
+    string client_id = 1;
+    Tunnel tunnel = 2;
+}
+
+message TunnelAddResponse {}
+
+message TunnelDeleteRequest {
+    string client_id = 1;
+    string tunnel_id = 2;
+}
+
+message TunnelDeleteResponse {}
+
+message TunnelListRequest {
+    string client_id = 1;
+}
