@@ -361,9 +361,9 @@ func socksStart(ctx context.Context,
 	args []string) {
 
 	socksStartCmd := flag.NewFlagSet(commands[6], flag.ExitOnError)
-	clientID := socksStartCmd.String("clientID", "",
+	clientID := socksStartCmd.String("clientid", "",
 		"The ID of the client")
-	socksPort := socksStartCmd.Int("socksPort", 0,
+	socksPort := socksStartCmd.Int("port", 0,
 		"The port on which to start the socks server")
 
 	socksStartCmd.Parse(args)
@@ -384,7 +384,7 @@ func socksStop(ctx context.Context,
 	args []string) {
 
 	socksStopCmd := flag.NewFlagSet(commands[6], flag.ExitOnError)
-	clientID := socksStopCmd.String("clientID", "",
+	clientID := socksStopCmd.String("clientid", "",
 		"The ID of the client")
 
 	socksStopCmd.Parse(args)
@@ -467,6 +467,11 @@ func main() {
 	}
 
 	ctx, _ := context.WithCancel(context.Background())
+
+	if len(os.Args) == 1 {
+		printCommands(os.Args[0])
+		os.Exit(1)
+	}
 
 	switch os.Args[1] {
 	case commands[0]:

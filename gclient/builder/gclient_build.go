@@ -58,6 +58,9 @@ func GenerateClient(
 		} else if arch == "x64" {
 			cmd.Env = append(cmd.Env, "GOARCH=amd64")
 		}
+	} else if platform == "mac" {
+		cmd.Env = append(cmd.Env, "GOOS=darwin")
+		cmd.Env = append(cmd.Env, "GOARCH=amd64")
 	}
 	log.Printf("[*] Build cmd: %s\n", cmd.String())
 	err = cmd.Run()

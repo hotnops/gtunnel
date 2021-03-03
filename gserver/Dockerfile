@@ -17,7 +17,6 @@ RUN go get -u google.golang.org/grpc && \
 # Copy over all gtunnel files and directories
 COPY go.mod .
 COPY gserver/ gserver/.
-COPY gclient/ gclient/.
 COPY common/ common/.
 COPY grpc/ grpc/.
 
@@ -29,19 +28,24 @@ RUN go get -d -v ./... && go install -v ./...
 
 # The image for building gtuncli
 FROM gtunbase AS gtuncli
-COPY gtuncli/ gtuncli/.
+RUN mkdir gtuncli
 WORKDIR /go/src/gTunnel/gtuncli
 CMD go build -o build/gtuncli gtuncli.go
 
 # The gserver image used to run the gtunnel server
-FROM gtunbase AS gtunserver
-RUN apt install -y openssl \
-	redis
+FROM gtunbase AS gtunserver-build
+RUN apt install -y openssl
 #	gcc-mingw-w64-i686 \
 #	gcc-mingw-w64-x86-64
 RUN mkdir tls && openssl req -new -newkey rsa:4096 -x509 -sha256 -days 365 -nodes -out tls/cert -subj "/C=/ST=/L=/O=/CN=" -keyout tls/key
-RUN go build -o gserver/gserver gserver/gServer.go
-CMD gserver/gserver
+RUN GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o gserver/gserver gserver/gServer.go
+
+FROM alpine:3.7 AS gtunserver-prod
+RUN apk --update add redis
+COPY --from=gtunserver-build /go/src/gTunnel/gserver/gserver .
+CMD ./gserver
+
+
 
 # The gserver debug image used for debugging gtunnel server
 FROM gtunserver AS gtunserver-debug
