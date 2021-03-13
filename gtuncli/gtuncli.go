@@ -169,6 +169,11 @@ func clientDisconnect(ctx context.Context,
 	clientID := disconnectCmd.String("clientid", "",
 		"The client to disconnect")
 	disconnectCmd.Parse(args)
+	
+	if *clientID == "" {
+		log.Fatalf("[!] clientid required\n")
+		return
+	}
 
 	disconnectReq := new(as.ClientDisconnectRequest)
 	disconnectReq.ClientId = *clientID
@@ -188,8 +193,8 @@ func tunnelAdd(ctx context.Context,
 		"The ID of the client that will get the new tunnel")
 	direction := tunnelAddCmd.String("direction", "forward",
 		"The direction of the tunnel")
-	listenIP := tunnelAddCmd.String("listenip", "0.0.0.0",
-		"The IP address on which the listen port will bind to")
+	listenIP := tunnelAddCmd.String("listenip", "127.0.0.1",
+		"The IP address on which the listen port will bind to. Default 127.0.0.1")
 	listenPort := tunnelAddCmd.Int("listenport", 0,
 		"The port on which to accept connections.")
 	destinationIP := tunnelAddCmd.String("destinationip", "",
@@ -200,6 +205,23 @@ func tunnelAdd(ctx context.Context,
 		"A friendly name for the tunnel. A random string will be generated if none is provided")
 
 	tunnelAddCmd.Parse(args)
+
+	if *clientID == "" {
+		log.Fatalf("[!] clientid required\n")
+		return
+	}
+	if *listenPort == 0 {
+		log.Fatalf("[!] listenport required\n")
+		return
+	}
+	if *destinationIP == "" {
+		log.Fatalf("[!] destinationip required\n")
+		return
+	}
+	if *destinationPort == 0 {
+		log.Fatalf("[!] listenport required\n")
+		return
+	}
 
 	tunnelAddReq := new(as.TunnelAddRequest)
 	tunnel := new(as.Tunnel)
@@ -244,6 +266,16 @@ func tunnelDelete(ctx context.Context,
 	tunnelID := tunnelDeleteCmd.String("tunnelid", "",
 		"The ID of the tunnel to delete")
 
+	if *clientID == "" {
+		log.Fatalf("[!] clientid required\n")
+		return
+	}
+
+	if *tunnelID == "" {
+		log.Fatalf("[!] tunnelid required\n")
+		return
+	}
+
 	tunnelDeleteCmd.Parse(args)
 
 	req := new(as.TunnelDeleteRequest)
@@ -267,6 +299,12 @@ func tunnelList(ctx context.Context,
 		"Tunnels will be listed for this client ID")
 
 	tunnelListCmd.Parse(args)
+
+	if *clientID == "" {
+		log.Fatalf("[!] clientid required\n")
+		return
+	}
+
 	req := new(as.TunnelListRequest)
 	req.ClientId = *clientID
 
@@ -328,6 +366,17 @@ func connectionList(ctx context.Context,
 		"The tunnel for which connections will be listed")
 
 	connectionListCmd.Parse(args)
+
+	if *clientID == "" {
+		log.Fatalf("[!] clientid required\n")
+		return
+	}
+
+	if *tunnelID == "" {
+		log.Fatalf("[!] tunnelid required\n")
+		return
+	}
+
 	req := new(as.ConnectionListRequest)
 	req.ClientId = *clientID
 	req.TunnelId = *tunnelID
@@ -368,6 +417,16 @@ func socksStart(ctx context.Context,
 
 	socksStartCmd.Parse(args)
 
+	if *clientID == "" {
+		log.Fatalf("[!] clientid required")
+		return
+	}
+
+	if *socksPort == 0 {
+		log.Fatalf("[!] port required")
+		return
+	}
+
 	req := new(as.SocksStartRequest)
 	req.ClientId = *clientID
 	req.SocksPort = uint32(*socksPort)
@@ -388,6 +447,11 @@ func socksStop(ctx context.Context,
 		"The ID of the client")
 
 	socksStopCmd.Parse(args)
+
+	if *clientID == "" {
+		log.Fatalf("[!] clientid required")
+		return
+	}
 
 	req := new(as.SocksStopRequest)
 	req.ClientId = *clientID

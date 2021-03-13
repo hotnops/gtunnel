@@ -1,6 +1,6 @@
 #!/bin/bash
 
-docker build --network host -f gserver/Dockerfile --target gtunserver-prod . -t hotnops/gtunnel-server
+docker build --network host -f gserver/Dockerfile --target gtunserver-prod . -t hotnops/gtunnel-server:latest
 
 if test $? -eq 0
 then
