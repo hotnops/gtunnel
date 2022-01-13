@@ -1,2 +1,2 @@
 Documentation can be found at:
-https://app.gitbook.com/@hotnops/s/gtunnel/
+https://hotnops.gitbook.io/gtunnel/
