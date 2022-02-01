@@ -8,8 +8,7 @@ RUN apt update && apt install -y \
 	unzip
 
 # Install protoc and all dependencies
-RUN go mod download github.com/olekukonko/tablewriter@latest && \
-	go get -u google.golang.org/grpc && \
+RUN go get -u google.golang.org/grpc && \
 	wget https://github.com/protocolbuffers/protobuf/releases/download/v3.19.4/protoc-3.19.4-linux-x86_64.zip && \
 	unzip protoc-3.19.4-linux-x86_64.zip -d /protoc && \
 	go install github.com/golang/protobuf/protoc-gen-go@latest && \
@@ -25,7 +24,7 @@ COPY grpc/ grpc/.
 RUN cd grpc && ./build_protoc.sh && cd ..
 
 # Get all gtunnel dependencies
-RUN go get -d -v ./... && go install -v ./...
+RUN go get -d -v ./... && go install -v ./... && go mod download github.com/olekukonko/tablewriter && go get github.com/olekukonko/tablewriter
 
 # The image for building gtuncli
 FROM gtunbase AS gtuncli
