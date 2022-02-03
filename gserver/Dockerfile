@@ -5,10 +5,10 @@ ENV PATH=$PATH:/protoc/bin:$GOPATH/bin
 
 # We need unzip to install protoc
 RUN apt update && apt install -y \
-	unzip
+	unzip git
 
 # Install protoc and all dependencies
-RUN go get -u google.golang.org/grpc && \
+RUN git clone https://github.com/grpc/grpc-go.git $GOPATH/src/google.golang.org/grpc && \
 	wget https://github.com/protocolbuffers/protobuf/releases/download/v3.19.4/protoc-3.19.4-linux-x86_64.zip && \
 	unzip protoc-3.19.4-linux-x86_64.zip -d /protoc && \
 	go install github.com/golang/protobuf/protoc-gen-go@latest && \
