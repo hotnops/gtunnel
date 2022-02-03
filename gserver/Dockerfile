@@ -43,7 +43,7 @@ RUN GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o gserver/gserver gserver/gS
 FROM alpine:3.15 AS gtunserver-prod
 RUN apk --update add redis
 COPY --from=gtunserver-build /go/src/gTunnel/gserver/gserver .
-CMD ./gserver
+ENTRYPOINT ["./gserver"]
 
 
 
