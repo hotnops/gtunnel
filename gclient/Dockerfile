@@ -1,4 +1,4 @@
-FROM golang:1.14
+FROM golang:1.18
 
 WORKDIR /go/src/gTunnel
 ENV PATH=$PATH:/protoc/bin:$GOPATH/bin
@@ -10,10 +10,10 @@ RUN apt update && apt install -y \
     gcc-mingw-w64-x86-64
 
 # Install protoc and all dependencies
-RUN go get -u google.golang.org/grpc && \
+RUN go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest && \
     wget https://github.com/protocolbuffers/protobuf/releases/download/v3.11.4/protoc-3.11.4-linux-x86_64.zip && \
     unzip protoc-3.11.4-linux-x86_64.zip -d /protoc && \
-    go get -u github.com/golang/protobuf/protoc-gen-go && \
+    go install github.com/golang/protobuf/protoc-gen-go@latest && \
     rm protoc-3.11.4-linux-x86_64.zip
 
 # Copy over all gtunnel files and directories
