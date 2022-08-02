@@ -1,4 +1,4 @@
-FROM golang:1.14 AS gtunbase
+FROM golang:1.18 AS gtunbase
 
 WORKDIR /go/src/gTunnel
 ENV PATH=$PATH:/protoc/bin:$GOPATH/bin
@@ -8,10 +8,10 @@ RUN apt update && apt install -y \
 	unzip
 
 # Install protoc and all dependencies
-RUN go get -u google.golang.org/grpc && \
+RUN go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest && \
 	wget https://github.com/protocolbuffers/protobuf/releases/download/v3.11.4/protoc-3.11.4-linux-x86_64.zip && \
 	unzip protoc-3.11.4-linux-x86_64.zip -d /protoc && \
-	go get -u github.com/golang/protobuf/protoc-gen-go && \
+	go install github.com/golang/protobuf/protoc-gen-go@latest && \
 	rm protoc-3.11.4-linux-x86_64.zip
 
 # Copy over all gtunnel files and directories
@@ -51,4 +51,3 @@ CMD ./gserver
 FROM gtunserver AS gtunserver-debug
 RUN go get -u github.com/go-delve/delve/cmd/dlv
 CMD ["dlv", "--headless", "--listen=0.0.0.0:2345", "--api-version=2", "debug", "gserver/gServer.go"]
-
