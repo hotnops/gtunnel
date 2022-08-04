@@ -21,7 +21,7 @@ jobs:
         go-version: 1.18
 
     - name: Set path
-      run: PATH=$PATH:/protoc/bin:$GOPATH/bin
+      run: echo "/protoc/bin:$GOPATH/bin" >> $GITHUB_PATH
 
     - name: Install dependencies
       run: |
