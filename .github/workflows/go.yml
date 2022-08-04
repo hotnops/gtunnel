@@ -21,7 +21,7 @@ jobs:
         go-version: 1.18
 
     - name: Set path
-      run: ENV PATH=$PATH:/protoc/bin:$GOPATH/bin
+      run: PATH=$PATH:/protoc/bin:$GOPATH/bin
 
     - name: Install dependencies
       run: |
