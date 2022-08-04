@@ -10,8 +10,6 @@ import (
 	"github.com/hotnops/gTunnel/common"
 	cs "github.com/hotnops/gTunnel/grpc/client"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 type contextKey string
@@ -118,17 +116,17 @@ func (s *GServer) StreamAuthInterceptor(srv interface{},
 
 	if client == nil {
 		log.Printf("[!] Invalid bearer token\n")
-		return status.Errorf(codes.Unauthenticated, err.Error())
+		return fmt.Errorf("invalid bearer token")
 	}
 
 	_, ok := s.connectedClients[uuid]
 
 	if !ok {
 		log.Printf("[!] UUID not connected\n")
-		return status.Errorf(codes.Unauthenticated, err.Error())
+		return fmt.Errorf("uuid not connected")
 	}
 
-	ctx = context.WithValue(ctx, contextKey("uuid"), uuid)
+	_ = context.WithValue(ctx, contextKey("uuid"), uuid)
 
 	return handler(srv, ss)
 }
@@ -150,7 +148,7 @@ func (s *GServer) UnaryAuthInterceptor(ctx context.Context,
 
 	if client == nil {
 		log.Printf("[!] Invalid bearer token\n")
-		return nil, status.Errorf(codes.Unauthenticated, err.Error())
+		return nil, fmt.Errorf("invalid bearer token")
 	}
 
 	_, ok := s.connectedClients[uuid]
@@ -178,7 +176,7 @@ func (s *GServer) AddTunnel(
 	client, ok := s.connectedClients[clientID]
 
 	if !ok {
-		log.Printf("[!] client with uuuid: %s does not exist\n")
+		log.Printf("[!] client with uuuid: %s does not exist\n", clientID)
 		return fmt.Errorf("addtunnel failed - client does not exist")
 	}
 

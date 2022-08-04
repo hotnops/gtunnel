@@ -50,9 +50,7 @@ func (c *ClientStreamHandler) Acknowledge(tunnel *common.Tunnel,
 }
 
 // CloseStream does nothing.
-func (c *ClientStreamHandler) CloseStream(tunnel *common.Tunnel, connID string) {
-	return
-}
+func (c *ClientStreamHandler) CloseStream(tunnel *common.Tunnel, connID string) {}
 
 // GetByteStream is responsible for returning a bi-directional gRPC
 // stream that will be used for relaying TCP data.

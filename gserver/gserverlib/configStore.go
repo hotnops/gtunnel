@@ -100,7 +100,7 @@ func (c *ConfigStore) Initialize() error {
 	for _, key := range keys {
 		clientConfig := new(ConfiguredClient)
 
-		value, err := c.redisClient.Get(c.context, key).Result()
+		value, _ := c.redisClient.Get(c.context, key).Result()
 
 		err = json.Unmarshal([]byte(value), clientConfig)
 		if err != nil {

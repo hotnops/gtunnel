@@ -209,7 +209,7 @@ func (s *ClientServiceServer) Start(
 		log.Fatalf("failed to listen: %v", err)
 	}
 
-	if tls == true {
+	if tls {
 		creds, err := credentials.NewServerTLSFromFile(certFile, keyFile)
 
 		if err != nil {
