@@ -15,6 +15,7 @@ import (
 	"github.com/hotnops/gTunnel/common"
 	as "github.com/hotnops/gTunnel/grpc/admin"
 	"github.com/olekukonko/tablewriter"
+	"golang.org/x/exp/slices"
 	"google.golang.org/grpc"
 )
 
@@ -39,10 +40,10 @@ var commands = []string{
 	"tunnellist",
 	"connectionlist",
 	"socksstart",
-	"socksstop"}
+	"socksstop",
+	"help"}
 
 func printCommands(progName string) {
-	fmt.Printf("[*] Usage: %s <gTunServerIP> <gTunSergerPort> command\n", progName)
 	fmt.Printf("[*] Available commands: \n")
 
 	for _, command := range commands {
@@ -432,6 +433,18 @@ func main() {
 		socksStopCmd := flag.NewFlagSet(commands[7], flag.ExitOnError)
 	*/
 
+	helpCommands := []string{"-h", "help"}
+
+	if len(os.Args) == 1 {
+		printCommands(os.Args[0])
+		os.Exit(1)
+	}
+
+	if slices.Contains(helpCommands, os.Args[1]) {
+		printCommands(os.Args[0])
+		os.Exit(1)
+	}
+
 	host := ""
 	port := 0
 
@@ -468,11 +481,6 @@ func main() {
 
 	ctx, _ := context.WithCancel(context.Background())
 
-	if len(os.Args) == 1 {
-		printCommands(os.Args[0])
-		os.Exit(1)
-	}
-
 	switch os.Args[1] {
 	case commands[0]:
 		clientList(ctx, adminClient)
@@ -493,6 +501,9 @@ func main() {
 		socksStart(ctx, adminClient, os.Args[2:])
 	case commands[8]:
 		socksStop(ctx, adminClient, os.Args[2:])
+	case commands[9]:
+		printCommands(os.Args[0])
+		os.Exit(1)
 	default:
 		log.Printf("[*] Command: %s not recognized\n", os.Args[1])
 	}
