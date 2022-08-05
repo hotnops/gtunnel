@@ -37,11 +37,8 @@ jobs:
         ./build_protoc.sh
         cd ..
 
-    - name: Get package
+    - name: Get packages
       run: go install ./...
 
-    - name: Build
-      run: go build -v ./...
-
-    - name: Test
-      run: go test -v ./...
+    - name: Build gtuncli
+      run: cd gtuncli && go build gtuncli.go && cd ..
