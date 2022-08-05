@@ -15,7 +15,6 @@ import (
 	"github.com/hotnops/gTunnel/common"
 	as "github.com/hotnops/gTunnel/grpc/admin"
 	"github.com/olekukonko/tablewriter"
-	"golang.org/x/exp/slices"
 	"google.golang.org/grpc"
 )
 
@@ -433,14 +432,17 @@ func main() {
 		socksStopCmd := flag.NewFlagSet(commands[7], flag.ExitOnError)
 	*/
 
-	helpCommands := []string{"-h", "help"}
-
 	if len(os.Args) == 1 {
 		printCommands(os.Args[0])
 		os.Exit(1)
 	}
 
-	if slices.Contains(helpCommands, os.Args[1]) {
+	if os.Args[1] == "-h" {
+		printCommands(os.Args[0])
+		os.Exit(1)
+	}
+
+	if os.Args[1] == "help" {
 		printCommands(os.Args[0])
 		os.Exit(1)
 	}
