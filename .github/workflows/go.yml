@@ -18,14 +18,17 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v3
       with:
-        go-version: 1.18
+        go-version: 1.18.1
 
-    - name: Install dependencies
+    - name: Set path
+      run: echo "/protoc/bin:$GOPATH/bin" >> $GITHUB_PATH
+
+    - name: Install system dependencies
       run: |
-        go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest \
-        wget https://github.com/protocolbuffers/protobuf/releases/download/v3.11.4/protoc-3.11.4-linux-x86_64.zip \
-        unzip protoc-3.11.4-linux-x86_64.zip -d /protoc \
-        go install github.com/golang/protobuf/protoc-gen-go@latest \
+        go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+        wget https://github.com/protocolbuffers/protobuf/releases/download/v3.11.4/protoc-3.11.4-linux-x86_64.zip
+        sudo unzip protoc-3.11.4-linux-x86_64.zip -d /protoc
+        go install github.com/golang/protobuf/protoc-gen-go@latest
         rm protoc-3.11.4-linux-x86_64.zip
 
     - name: Build protoc
@@ -34,8 +37,8 @@ jobs:
         ./build_protoc.sh
         cd ..
 
-    - name: Build
-      run: go build -v ./...
+    - name: Get packages
+      run: go install ./...
 
-    - name: Test
-      run: go test -v ./...
+    - name: Build gtuncli
+      run: cd gtuncli && go build gtuncli.go && cd ..
