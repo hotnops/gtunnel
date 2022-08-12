@@ -47,4 +47,4 @@ jobs:
       uses: actions/upload-artifact@v2
       with:
         name: gtuncli
-        path: /gtuncli/gtunclu
+        path: /gtuncli/gtuncli
