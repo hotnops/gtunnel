@@ -43,7 +43,7 @@ jobs:
     - name: Build gtuncli
       run: |
         mkdir build
-        cd gtuncli && go build gtuncli.go -o build/gtuncli && cd ..
+        cd gtuncli && go build -o ../build/gtuncli gtuncli.go && cd ..
       
     - name: Publish artifact
       uses: actions/upload-artifact@v2
