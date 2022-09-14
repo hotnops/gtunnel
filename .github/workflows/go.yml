@@ -41,4 +41,13 @@ jobs:
       run: go install ./...
 
     - name: Build gtuncli
-      run: cd gtuncli && go build gtuncli.go && cd ..
+
+      run: |
+        mkdir build
+        cd gtuncli && go build -o ../build/gtuncli gtuncli.go && cd ..
+      
+    - name: Publish artifact
+      uses: actions/upload-artifact@v2
+      with:
+        name: gtuncli
+        path: build/gtuncli
