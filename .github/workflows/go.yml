@@ -36,7 +36,7 @@ jobs:
         cd ..
 
     - name: Get packages
-      run: go install ./...
+      run: go get -d- v ./... && go install -v ./...
 
     - name: Build gtuncli
       run: |
