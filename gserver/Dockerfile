@@ -16,6 +16,7 @@ RUN go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest && \
 
 # Copy over all gtunnel files and directories
 COPY go.mod .
+COPY go.sum .
 COPY gserver/ gserver/.
 COPY common/ common/.
 COPY grpc/ grpc/.
