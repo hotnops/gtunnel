@@ -16,6 +16,7 @@ RUN go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest && \
 
 # Copy over all gtunnel files and directories
 COPY go.mod .
+COPY go.sum .
 COPY gserver/ gserver/.
 COPY common/ common/.
 COPY grpc/ grpc/.
@@ -24,7 +25,7 @@ COPY grpc/ grpc/.
 RUN cd grpc && ./build_protoc.sh && cd ..
 
 # Get all gtunnel dependencies
-RUN go get -d -v ./... && go install -v ./...
+RUN go get -u ./... && go install -v ./...
 
 # The image for building gtuncli
 FROM gtunbase AS gtuncli
