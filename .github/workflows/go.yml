@@ -21,6 +21,9 @@ jobs:
     - name: Set path
       run: echo "/protoc/bin:$GOPATH/bin" >> $GITHUB_PATH
 
+    - name: Echo env
+      run: env
+
     - name: Install system dependencies
       run: |
         wget https://github.com/protocolbuffers/protobuf/releases/download/v22.3/protoc-22.3-linux-x86_64.zip
