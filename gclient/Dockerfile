@@ -10,11 +10,12 @@ RUN apt update && apt install -y \
     gcc-mingw-w64-x86-64
 
 # Install protoc and all dependencies
-RUN go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest && \
-    wget https://github.com/protocolbuffers/protobuf/releases/download/v3.11.4/protoc-3.11.4-linux-x86_64.zip && \
-    unzip protoc-3.11.4-linux-x86_64.zip -d /protoc && \
-    go install github.com/golang/protobuf/protoc-gen-go@latest && \
-    rm protoc-3.11.4-linux-x86_64.zip
+#RUN go install google.golang.org/grpc/cmd/proto@latest
+RUN wget https://github.com/protocolbuffers/protobuf/releases/download/v22.3/protoc-22.3-linux-x86_64.zip &&\
+unzip protoc-22.3-linux-x86_64.zip -d /protoc &&\
+rm protoc-22.3-linux-x86_64.zip &&\
+go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.28 &&\
+go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.2
 
 # Copy over all gtunnel files and directories
 COPY go.mod .
