@@ -1,4 +1,4 @@
-FROM golang:1.18
+FROM golang:1.20.3
 
 WORKDIR /go/src/gTunnel
 ENV PATH=$PATH:/protoc/bin:$GOPATH/bin

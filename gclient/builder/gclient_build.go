@@ -27,6 +27,18 @@ func GenerateClient(
 	}
 
 	outputPath := fmt.Sprintf("/output/%s", outputFile)
+	tokenOutputPath := outputPath + ".token"
+
+	tokenFile, err := os.Create(tokenOutputPath)
+	if err != nil {
+		log.Printf("[!] Could not create token file")
+		return err
+	}
+
+	if _, err := tokenFile.WriteString(token); err != nil {
+		log.Printf("[!] Could not write token to file")
+		return err
+	}
 
 	flagString := fmt.Sprintf("-s -w -X main.clientToken=%s -X main.serverAddress=%s -X main.serverPort=%d -X main.httpsProxyServer=%s", token, serverAddress, serverPort, proxyServer)
 	var commands []string
@@ -41,8 +53,11 @@ func GenerateClient(
 
 	cmd := exec.Command("go", commands...)
 	cmd.Env = os.Environ()
-	cmd.Env = append(cmd.Env, "CGO_ENABLED=1")
 	if platform == "win" {
+		commands = append(commands, "gclient/cgo_windows.go")
+		cmd = exec.Command("go", commands...)
+		cmd.Env = os.Environ()
+		cmd.Env = append(cmd.Env, "CGO_ENABLED=1")
 		cmd.Env = append(cmd.Env, "GOOS=windows")
 		if arch == "x86" {
 			cmd.Env = append(cmd.Env, "CC=i686-w64-mingw32-gcc")

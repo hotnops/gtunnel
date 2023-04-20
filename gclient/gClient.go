@@ -1,7 +1,5 @@
 package main
 
-import "C"
-
 import (
 	"context"
 	"crypto/tls"
@@ -165,11 +163,6 @@ func (c *gClient) receiveClientControlMessages() {
 			os.Exit(0)
 		}
 	}
-}
-
-//export ExportMain
-func ExportMain() {
-	main()
 }
 
 func main() {
