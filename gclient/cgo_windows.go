@@ -4,5 +4,5 @@ import "C"
 
 //export ExportMain
 func ExportMain() {
-	main()
+	gclient_main()
 }

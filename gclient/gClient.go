@@ -87,7 +87,7 @@ func (c *gClient) receiveClientControlMessages() {
 			if err == io.EOF {
 				break
 			} else if err != nil {
-				os.Exit(0)
+				return
 			}
 			ctrlMessageChan <- message
 		}
@@ -160,12 +160,12 @@ func (c *gClient) receiveClientControlMessages() {
 			}
 
 		case <-c.killClient:
-			os.Exit(0)
+			return
 		}
 	}
 }
 
-func main() {
+func gclient_main() {
 	var err error
 	var cancel context.CancelFunc
 
@@ -222,4 +222,8 @@ func main() {
 
 	go gClient.receiveClientControlMessages()
 	<-gClient.killClient
+}
+
+func main() {
+	gclient_main()
 }

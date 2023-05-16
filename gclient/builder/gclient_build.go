@@ -41,7 +41,7 @@ func GenerateClient(
 		return err
 	}
 
-	flagString := fmt.Sprintf("-s -w -X main.clientToken=%s -X main.serverAddress=%s -X main.serverPort=%d -X main.httpsProxyServer=%s", token, serverAddress, serverPort, proxyServer)
+	flagString := fmt.Sprintf("-extldflags \"-static\" -s -w -X main.clientToken=%s -X main.serverAddress=%s -X main.serverPort=%d -X main.httpsProxyServer=%s", token, serverAddress, serverPort, proxyServer)
 	var commands []string
 
 	commands = append(commands, "build")
@@ -63,7 +63,7 @@ func GenerateClient(
 		if arch == "x86" {
 			cmd.Env = append(cmd.Env, "CC=i686-w64-mingw32-gcc")
 			cmd.Env = append(cmd.Env, "GOARCH=386")
-			cmd.Env = append(cmd.Env, "CXX=i686-w64-mingw32-g++")
+			//cmd.Env = append(cmd.Env, "CXX=i686-w64-mingw32-g++")
 		} else if arch == "x64" {
 			cmd.Env = append(cmd.Env, "CC=x86_64-w64-mingw32-gcc")
 			cmd.Env = append(cmd.Env, "GOARCH=amd64")
@@ -107,7 +107,7 @@ func main() {
 	outputFile := flag.String("outputfile", "",
 		"The output file where the client binary will be written")
 	binType := flag.String("bintype", "exe",
-		"The type of output file. Options are exe or dll. Exe works on linux.")
+		"The type of output file. Options are exe or lib. Exe works on linux.")
 
 	arch := flag.String("arch", "x64",
 		"The architecture of the binary. Options are x86 or x64")
