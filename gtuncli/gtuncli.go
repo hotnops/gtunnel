@@ -117,32 +117,14 @@ func clientRegister(ctx context.Context,
 
 	clientCreateCmd.Parse(args)
 
-	if *clientPlatform == "" {
-		fmt.Println("[!] clientregister failed: platform required")
-		return
-	}
-	if *serverIP == "" {
-		fmt.Println("[!] clientregister failed: ip required")
-		return
-	}
-	if *name == "" {
-		fmt.Println("[!] clientregister failed: name required")
-		return
-	}
 	if *token == "" {
 		fmt.Println("[!] clientregister failed: token required")
 		return
 	}
-	if *arch == "" {
-		fmt.Println("[!] clientregister failed: arch required")
-		return
-	}
-
-	ip := net.ParseIP(*serverIP)
 
 	clientCreateReq := new(as.ClientRegisterRequest)
 	clientCreateReq.ClientId = *name
-	clientCreateReq.IpAddress = common.IpToInt32(ip)
+	clientCreateReq.ServerEndpoint = *serverIP
 	clientCreateReq.Port = uint32(*serverPort)
 	clientCreateReq.Platform = *clientPlatform
 	clientCreateReq.BinType = *binType
@@ -412,7 +394,7 @@ func loadConfiguration(hostname *string, port *int) {
 
 	if err != nil {
 		log.Printf("[!] Failed to desrialize configuration file")
-		os.Exit(1)
+		log.Fatal(err)
 	}
 
 	if val, ok := configData["host"]; ok {

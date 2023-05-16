@@ -56,7 +56,7 @@ message Client {
 message ClientRegisterRequest {
   string client_id = 1;
   string token = 2;
-  uint32 ip_address = 3;
+  string server_endpoint = 3;
   uint32 port = 4;
   string platform = 5;
   string bin_type = 6;

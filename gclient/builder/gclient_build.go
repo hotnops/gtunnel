@@ -8,6 +8,7 @@ import (
 	"os/exec"
 
 	"github.com/hotnops/gTunnel/common"
+	"golang.org/x/exp/slices"
 )
 
 func GenerateClient(
@@ -62,9 +63,13 @@ func GenerateClient(
 		if arch == "x86" {
 			cmd.Env = append(cmd.Env, "CC=i686-w64-mingw32-gcc")
 			cmd.Env = append(cmd.Env, "GOARCH=386")
+			cmd.Env = append(cmd.Env, "CXX=i686-w64-mingw32-g++")
 		} else if arch == "x64" {
 			cmd.Env = append(cmd.Env, "CC=x86_64-w64-mingw32-gcc")
 			cmd.Env = append(cmd.Env, "GOARCH=amd64")
+		} else {
+			log.Printf("[!] Invalid architecture")
+			return nil
 		}
 	} else if platform == "linux" {
 		cmd.Env = append(cmd.Env, "GOOS=linux")
@@ -76,6 +81,9 @@ func GenerateClient(
 	} else if platform == "mac" {
 		cmd.Env = append(cmd.Env, "GOOS=darwin")
 		cmd.Env = append(cmd.Env, "GOARCH=amd64")
+	} else {
+		log.Printf("[!] Invalid platform")
+		return nil
 	}
 	log.Printf("[*] Build cmd: %s\n", cmd.String())
 	err = cmd.Run()
@@ -102,11 +110,30 @@ func main() {
 		"The type of output file. Options are exe or dll. Exe works on linux.")
 
 	arch := flag.String("arch", "x64",
-		"The architecture of the binary. Options are x64 or x64")
+		"The architecture of the binary. Options are x86 or x64")
 
 	proxyServer := flag.String("proxy", "", "A proxy server that the client will call through. Empty by default")
 
 	flag.Parse()
+
+	platforms := []string{"win", "mac", "linux"}
+	bintypes := []string{"exe", "lib"}
+	archs := []string{"x86", "x64"}
+
+	if !slices.Contains(platforms, *platform) {
+		fmt.Println(("[!] Invalid platform provided"))
+		os.Exit(1)
+	}
+
+	if !slices.Contains(bintypes, *binType) {
+		fmt.Println("[!] Invalid bintype")
+		os.Exit(1)
+	}
+
+	if !slices.Contains(archs, *arch) {
+		fmt.Println("[!] Invalid architecture")
+		os.Exit(1)
+	}
 
 	if *serverAddress == "" {
 		fmt.Println("[!] ip not provided")

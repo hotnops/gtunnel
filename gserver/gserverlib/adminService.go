@@ -34,13 +34,11 @@ func (s *AdminServiceServer) ClientRegister(ctx context.Context, req *as.ClientR
 	*as.ClientRegisterResponse, error) {
 	log.Printf("[*] ClientRegister called")
 
-	ip := common.Int32ToIP(req.IpAddress)
-
 	configuredClient := new(ConfiguredClient)
 	configuredClient.Arch = req.Arch
 	configuredClient.Name = req.ClientId
 	configuredClient.Port = req.Port
-	configuredClient.Server = ip.String()
+	configuredClient.Server = req.ServerEndpoint
 	configuredClient.Token = req.Token
 	configuredClient.BinType = req.BinType
 	configuredClient.Platform = req.Platform

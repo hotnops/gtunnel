@@ -31,7 +31,7 @@ RUN go get -d -v ./... && go install -v ./...
 FROM gtunbase AS gtuncli
 RUN mkdir gtuncli
 WORKDIR /go/src/gTunnel/gtuncli
-CMD go build -o build/gtuncli gtuncli.go
+CMD go build -o /build/gtuncli gtuncli.go
 
 # The gserver image used to run the gtunnel server
 FROM gtunbase AS gtunserver-build
