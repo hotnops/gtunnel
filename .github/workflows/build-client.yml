@@ -42,8 +42,33 @@ jobs:
       run: |
         ./build_client.sh -host 127.0.0.1 -name dummy -outputfile dummywin32.exe -bintype exe -platform win -arch x86
 
+    - name: Build windows 32 bit dll
+      run: |
+        ./build_client.sh -host 127.0.0.1 -name dummy -outputfile dummywin32.dll -bintype lib -platform win -arch x86
+
     - name: Build windows 64 bit exe
       run: |
         ./build_client.sh -host 127.0.0.1 -name dummy -outputfile dummywin64.exe -bintype exe -platform win -arch x64
+    
+    - name: Build windows 64 bit exe
+      run: |
+        ./build_client.sh -host 127.0.0.1 -name dummy -outputfile dummywin64.dll -bintype dll -platform win -arch x64
 
+    - name: Build linux 32 bit exe
+      run: |
+        ./build_client.sh -host 127.0.0.1 -name dummy -outputfile dummylinux32.bin -bintype exe -platform linux -arch x86
+
+    - name: Build linux 32 bit dll
+      run: |
+        ./build_client.sh -host 127.0.0.1 -name dummy -outputfile dummylinux32.dll -bintype lib -platform linux -arch x86
+
+    - name: Build linux 64 bit exe
+      run: |
+        ./build_client.sh -host 127.0.0.1 -name dummy -outputfile dummylinux64.bin -bintype exe -platform linux -arch x64
+
+    - name: Build linux 64 bit exe
+      run: |
+        ./build_client.sh -host 127.0.0.1 -name dummy -outputfile dummylinux64.dll -bintype lib -platform linux -arch x64
+    
+    
     
