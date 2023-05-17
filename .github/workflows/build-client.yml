@@ -41,3 +41,9 @@ jobs:
     - name: Build windows 32 bit exe
       run: |
         ./build_client.sh -host 127.0.0.1 -name dummy -outputfile dummywin32.exe -bintype exe -platform win -arch x86
+
+    - name: Build windows 64 bit exe
+      run: |
+        ./build_client.sh -host 127.0.0.1 -name dummy -outputfile dummywin64.exe -bintype exe -platform win -arch x64
+
+    

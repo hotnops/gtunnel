@@ -8,7 +8,7 @@ docker run -t --name gclient-build gclient-build-image "$@"
 
 if test $? -eq 0
 then
-    docker cp -q gclient-build:/output/. build/
+    docker cp gclient-build:/output/. build/
 else
     echo "[*] Exiting"
 fi
