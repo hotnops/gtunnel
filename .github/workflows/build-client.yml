@@ -1,4 +1,4 @@
-name: Go
+name: build-gtuncli
 
 on:
   push:
@@ -9,7 +9,7 @@ on:
 jobs:
 
   build:
-    runs-on: ubuntu-latest
+    runs-on: golang:1.20.3
     steps:
     - uses: actions/checkout@v3
 
@@ -23,6 +23,7 @@ jobs:
 
     - name: Install system dependencies
       run: |
+        apt update && apt install -y unzip gcc-mingw-w64-i686 gcc-mingw-w64-x86-64 gcc-multilib
         wget https://github.com/protocolbuffers/protobuf/releases/download/v22.3/protoc-22.3-linux-x86_64.zip
         sudo unzip protoc-22.3-linux-x86_64.zip -d /protoc
         rm protoc-22.3-linux-x86_64.zip
@@ -38,13 +39,6 @@ jobs:
     - name: Get packages
       run: go get -d -v ./... && go install -v ./...
 
-    - name: Build gtuncli
+    - name: Build windows 32 bit exe
       run: |
-        mkdir build
-        cd gtuncli && go build -o ../build/gtuncli gtuncli.go && cd ..
-      
-    - name: Publish artifact
-      uses: actions/upload-artifact@v2
-      with:
-        name: gtuncli
-        path: build/gtuncli
+        ./build_client.sh -host 127.0.0.1 -name dummy -outputfile dummywin32.exe -bintype exe -platform win -arch x86
