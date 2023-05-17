@@ -7,7 +7,8 @@ ENV PATH=$PATH:/protoc/bin:$GOPATH/bin
 RUN apt update && apt install -y \
     unzip \
     gcc-mingw-w64-i686 \
-    gcc-mingw-w64-x86-64
+    gcc-mingw-w64-x86-64 \
+    gcc-multilib
 
 # Install protoc and all dependencies
 #RUN go install google.golang.org/grpc/cmd/proto@latest

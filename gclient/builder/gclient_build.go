@@ -41,51 +41,59 @@ func GenerateClient(
 		return err
 	}
 
-	flagString := fmt.Sprintf("-extldflags \"-static\" -s -w -X main.clientToken=%s -X main.serverAddress=%s -X main.serverPort=%d -X main.httpsProxyServer=%s", token, serverAddress, serverPort, proxyServer)
+	var loaderFlags = ""
+
+	if platform == "win" {
+		loaderFlags = "-extldflags \"-static\" -s -w -X main.clientToken=%s -X main.serverAddress=%s -X main.serverPort=%d -X main.httpsProxyServer=%s"
+	} else {
+		loaderFlags = "-s -w -X main.clientToken=%s -X main.serverAddress=%s -X main.serverPort=%d -X main.httpsProxyServer=%s"
+	}
+
+	flagString := fmt.Sprintf(loaderFlags, token, serverAddress, serverPort, proxyServer)
 	var commands []string
 
 	commands = append(commands, "build")
+	env := os.Environ()
+	target_files := []string{"gclient/gClient.go"}
 
 	if binType == "lib" {
 		commands = append(commands, "-buildmode=c-shared")
+		env = append(env, "CGO_ENABLED=1")
+		target_files = append(target_files, "gclient/cgo.go")
 	}
 
-	commands = append(commands, "-ldflags", flagString, "-o", outputPath, "gclient/gClient.go")
+	commands = append(commands, "-ldflags", flagString, "-o", outputPath)
+	commands = append(commands, target_files...)
 
-	cmd := exec.Command("go", commands...)
-	cmd.Env = os.Environ()
+	if arch == "x86" {
+		env = append(env, "GOARCH=386")
+		if platform == "win" {
+			env = append(env, "CC=i686-w64-mingw32-gcc")
+		}
+	} else if arch == "x64" {
+		env = append(env, "GOARCH=amd64")
+		if platform == "win" {
+			env = append(env, "CC=x86_64-w64-mingw32-gcc")
+		}
+	} else {
+		log.Fatal("[!] Invalid architecture: %s", arch)
+	}
+
 	if platform == "win" {
-		commands = append(commands, "gclient/cgo_windows.go")
-		cmd = exec.Command("go", commands...)
-		cmd.Env = os.Environ()
-		cmd.Env = append(cmd.Env, "CGO_ENABLED=1")
-		cmd.Env = append(cmd.Env, "GOOS=windows")
-		if arch == "x86" {
-			cmd.Env = append(cmd.Env, "CC=i686-w64-mingw32-gcc")
-			cmd.Env = append(cmd.Env, "GOARCH=386")
-			//cmd.Env = append(cmd.Env, "CXX=i686-w64-mingw32-g++")
-		} else if arch == "x64" {
-			cmd.Env = append(cmd.Env, "CC=x86_64-w64-mingw32-gcc")
-			cmd.Env = append(cmd.Env, "GOARCH=amd64")
-		} else {
-			log.Printf("[!] Invalid architecture")
-			return nil
-		}
+		env = append(env, "GOOS=windows")
 	} else if platform == "linux" {
-		cmd.Env = append(cmd.Env, "GOOS=linux")
-		if arch == "x86" {
-			cmd.Env = append(cmd.Env, "GOARCH=386")
-		} else if arch == "x64" {
-			cmd.Env = append(cmd.Env, "GOARCH=amd64")
-		}
+		env = append(env, "GOOS=linux")
 	} else if platform == "mac" {
-		cmd.Env = append(cmd.Env, "GOOS=darwin")
-		cmd.Env = append(cmd.Env, "GOARCH=amd64")
+		env = append(env, "GOOS=darwin")
 	} else {
 		log.Printf("[!] Invalid platform")
 		return nil
 	}
+	cmd := exec.Command("go", commands...)
 	log.Printf("[*] Build cmd: %s\n", cmd.String())
+	log.Printf("[*] Env: %s\n", env)
+
+	cmd.Env = env
 	err = cmd.Run()
 	if err != nil {
 		log.Printf("[!] Failed to generate client: %s", err)
