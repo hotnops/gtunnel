@@ -1,7 +1,7 @@
 #!/bin/bash
 
 if [[ "$(sudo docker image inspect gclient-build-image:latest 2> /dev/null)" == "[]" ]]; then
-    docker build --network host -f gclient/Dockerfile -t gclient-build-image .
+    docker build -t --network host -f gclient/Dockerfile -t gclient-build-image .
 fi
 
 docker run -it --name gclient-build gclient-build-image "$@"

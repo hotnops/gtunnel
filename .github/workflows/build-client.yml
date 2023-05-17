@@ -23,7 +23,7 @@ jobs:
 
     - name: Install system dependencies
       run: |
-        apt update && apt install -y unzip gcc-mingw-w64-i686 gcc-mingw-w64-x86-64 gcc-multilib
+        sudo apt update && sudo apt install -y unzip gcc-mingw-w64-i686 gcc-mingw-w64-x86-64 gcc-multilib
         wget https://github.com/protocolbuffers/protobuf/releases/download/v22.3/protoc-22.3-linux-x86_64.zip
         sudo unzip protoc-22.3-linux-x86_64.zip -d /protoc
         rm protoc-22.3-linux-x86_64.zip
