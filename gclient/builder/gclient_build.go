@@ -106,7 +106,7 @@ func main() {
 
 	platform := flag.String("platform", "win",
 		"The operating system platform")
-	serverAddress := flag.String("ip", "",
+	serverAddress := flag.String("host", "",
 		"Address to which the client will connect.")
 	serverPort := flag.Int("port", 443,
 		"The port to which the client will connect")
@@ -146,6 +146,7 @@ func main() {
 	if *serverAddress == "" {
 		fmt.Println("[!] ip not provided")
 		os.Exit(1)
+
 	}
 
 	if *clientID == "" {
