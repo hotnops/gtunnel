@@ -1,4 +1,4 @@
-name: build-gtuncli
+name: build-clients
 
 on:
   push:
@@ -9,7 +9,7 @@ on:
 jobs:
 
   build:
-    runs-on: golang:1.20.3
+    runs-on: ubuntu:latest
     steps:
     - uses: actions/checkout@v3
 
